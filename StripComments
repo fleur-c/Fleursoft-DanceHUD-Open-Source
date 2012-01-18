@@ -1,0 +1,25 @@
+#!/usr/bin/perl
+#
+# Simple little perl script that just:
+#  1) Strips off lsl comments (//...$)
+#  2) Trims all whitespace from the tail of a line
+#  3) Drops all blank lines
+# Input is stdin, output is stdout
+
+while ($line = <STDIN>)
+{
+	chomp($line);
+	if (($line =~ /\/\/.*$/) && !($line =~ /pragma inline/) && !($line =~ /http:\/\//) && !($line =~ /secondlife:\/\/\//))
+	{
+		$line =~ s/\/\/.*$//;
+	}
+	while ($line =~ s/ $|	$//)
+	{
+		;
+	}
+
+	if ($line ne "")
+	{
+		print "$line\n";
+	}
+}

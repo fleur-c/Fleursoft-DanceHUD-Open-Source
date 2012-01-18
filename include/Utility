@@ -1,0 +1,80 @@
+#ifndef UTILITY
+#define UTILITY
+// Simple utility functions/macros that we gathered in one simple place to include
+
+// We want some nice easy list and string manipulation routines which try very
+//  hard to conserve memory (always clear the input before returning a result
+// Note: This hack is mentioned all over lslwiki.net
+//
+// Usage: something=AppendToString(something, "new thing to add");
+
+// Interestingly - the BIG difference in LSL between SL and OpenSim seems to be the
+// hack in SL to clear memory does NOT work in OpenSim. This makes sense as SL interpretes
+// the code and OpenSim compiles it to a C# program - so the clear will only get C#
+// all confused as the object will be empty and the rest of the evaluation of the
+// line of code would reference the empty object. In SL, the expression happens as
+// it is interpreted - which has to mean that variables have their values substituted
+// into the expression at the start of the statement - which would be why SL doesn't
+// care about the expression clearing a variable then using it later in the same expression.
+// (sigh) - language sementics...
+
+#ifdef BUILD_FOR_SL
+#define AppendToString(input, addition) \
+	(input="")+input+addition
+
+#define AppendStringToList(input, addition) \
+	(input=[])+input+[addition]
+
+#define AppendIntegerToList(input, addition) \
+	(input=[])+input+[addition]
+
+#define AppendFloatToList(input, addition) \
+	(input=[])+input+[addition]
+
+#define AppendListToList(input, addition) \
+	(input=[])+input+addition
+
+#define InsertListToList(input,addition,location) \
+	(input=[])+llListInsertList(input, addition, location)
+
+#define ReplaceListEntry(input, newPart, location) \
+	(input=[])+llListReplaceList(input,newPart,location,location)
+
+#define DeleteListEntry(input, location) \
+	(input=[])+llDeleteSubList(input,location,location)
+
+#define SortList(input, stride, direction) \
+	(input=[])+llListSort(input, stride, direction)
+#endif
+
+#ifdef BUILD_FOR_OPENSIM
+#define AppendToString(input, addition) \
+	input+addition
+
+#define AppendStringToList(input, addition) \
+	input+[addition]
+
+#define AppendIntegerToList(input, addition) \
+	input+[addition]
+
+#define AppendFloatToList(input, addition) \
+	input+[addition]
+
+#define AppendListToList(input, addition) \
+	input+addition
+
+#define InsertListToList(input,addition,location) \
+	llListInsertList(input, addition, location)
+
+#define ReplaceListEntry(input, newPart, location) \
+	llListReplaceList(input,newPart,location,location)
+
+#define DeleteListEntry(input, location) \
+	llDeleteSubList(input,location,location)
+
+#define SortList(input, stride, direction) \
+	llListSort(input, stride, direction)
+#endif
+
+
+#endif

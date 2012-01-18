@@ -1,0 +1,13 @@
+// Simple include - just defines if we are doing tracing at all or not
+#ifndef TRACE
+#define TRACE 1
+
+// Do we enable the extra tracing macros or not?
+//#define UNIT_TEST_TRACING 1
+#undef UNIT_TEST_TRACING
+
+// Do we enable disable scripts in the DanceControl script?
+// #define UNIT_TEST_DANCECONTROL 1
+#undef UNIT_TEST_DANCECONTROL
+
+#endif

@@ -1,0 +1,1019 @@
+// Script that simply prepares a sequence and returns it to where we want to send it...
+//
+// Translation - what we get in is a dance sequence of tokens and this routine will
+//  take those tokens and transform it into a time ordered set of operations - the
+//  two are very much the same mostly... except when you introduce [group] tokens
+//  and then - the time ordered list will look very different from a sequence.
+//
+// What am I talking about? Crazy person that I am...
+//
+// Input: [name]Something | [group]Female | [dance]Dance1| [delay]30 | [end] \
+//                          [group]Male   | [dance]Dance2| [delay]30 | [end] | [repeat]
+//
+// This dance sequence has to be transformed into a time ordered sequence and the time
+// sequence has to end up looking something like this:
+//
+// Output: [name]Something | [dance for Female group] Dance1 | \
+//                           [dance for Male group] Dance2 | [delay]30 | [repeat]
+//
+// The reason for the transformation is so that the Female group will get told to start
+// dancing 'Dance1' and immediately the Male group will get told to dance 'Dance2'.
+// The DanceControl script will then delay for 30 seconds - and loop around to the start
+// of the sequence. There are more details - but that is essentially what this whole
+// script is all about.
+//
+// The complexified parts are related to having several types of looping keywords
+// within the sequence: [loop], [random], [mix] - you can have these in each group
+// but only one per group. If the groups are all together in one selection of time
+// then the selected dances from [random] or [mix] are selected the same in all of
+// the [groups]. This means that a sequence like this:
+//
+// Input: [name]Something | [group]Female | [random 1] | [dance]F1| [delay]30 | [dance]F2| [delay]20 | [end] | [end] \
+//                          [group]Male   | [random 1] | [dance]M1| [delay]30 | [dance]M2| [delay]20 | [end] | [repeat]
+//
+// Will decide which of the two Female dances (F1 or F2) for the one [random] dance and that
+// the Male group will have selected the same 'ordered' dance... meaning either one of these
+// two outputs will be possible:
+//
+// Output: [name]Something | [dance for Female group] F1 | \
+//                           [dance for Male group] M1 | [delay]30 | [repeat]
+//     or: [name]Something | [dance for Female group] F2 | \
+//                           [dance for Male group] M2 | [delay]20 | [repeat]
+//
+// The translation from dance sequence to time ordered sequence is kind of strange
+// sounding - but lets the DanceControl script be very easy to do it's work.
+//
+// Caution - I wrote this early on it the DanceHUD development and have not gone
+//  back and cleaned up this set of routines. It does some odd looking things - but
+//  I know it works and works pretty well (Debugged it extensively). It should be
+//  cleaned up and rewritten some day... I didn't feel like doing it yet.
+
+#include "GlobalDefinitions"
+#include "Debug"
+#include "Keywords"
+#include "Utility"
+#include "UtilOwnerSay"
+
+
+// Global variables
+integer returnLink;				// Where do we send the results to?
+
+
+// Time sequence globals - used to prepare a sequence into a time sequence
+string sequencename = "";		// Name of the sequence that is being ordered by time
+list timeSequence = [];			// List of time ordered dance sequence items that are used to execute during the dance sequence
+								// ONLY the keywords and parameters of actions required are on this list!
+
+// Loop infrastructure
+list loops = [];				// Loop item index list - every item in a loop are added to this list
+list loopsLength = [];			// Length of the item that we index to in loops (1 for most things, 2 for dances)
+integer loopActive = FALSE;		// Loop active flag
+integer loopStartsAt = 0;		// Loop start index (where in the input sequence did the loop/group start)
+list prevSelect = [];			// What were the previous loop selections (all of them for the current loop)
+list prevSelectLength = [];		// What were the durations of the previous loop items lengths that we selected?
+integer prevLoopNumOptions = 0;	// How many options did we have in the starting loop?
+integer prevLoopStarts = 0;		// Index of each of the loop starts of the first group (so mix, repeat, etc)
+
+// Group infrastructure
+list groupSequence = [];		// Time ordered sequence for the currently active group (when we have a group active)
+integer groupStartsAt = 0;		// Where in the timeSequence does the first group start at?
+integer groupActive = 0;		// Are we inside a group tag or not?
+integer activeGroupBits = 1;	// What group bits (for multicast) are we actively using?
+integer previousWasGroup = FALSE;	// Flag indicating that we had a previous group or not
+integer previousGroupStartsAt = 0;	// Where did the previous group start in the time sequence?
+integer usePrevSelections = -1;	// Flag indicating if the group should use previous selections or not (-1 for no, #=index of where we are in the loopStarts)
+integer groupDuration = 0;		// Delay duration of the current group
+integer groupStartedInSeqAt = -1;	// Where did the current group start in the input dance sequence?
+integer prevGroupStartedInSeqAt = -1;// Where did the first group start in the input dance sequence?
+integer groupCounter=0;			// Which group # (as in count of groups) have we gotten up to in a collection of groups?
+
+list startSeq = [];				// Transient sequence information - happens to be the sequence at the start of a transform to time ordered
+
+
+// Store an action into either the overall time sequence OR the group time sequence
+//  Start=index to the starting sequence
+//  length=1 (mostly) =2 for dances only (dance+delay) - we also insert the dance start/stop/dance index
+// The dance index is the # of the groups in a collection of them - [group..end][group...end][group...end] = 0=first,1=next,2=last in this example
+StoreIntoSequence(integer start, integer length)
+{
+	if (!groupActive)
+	{
+		if (length == 2)
+		{
+			// Dances require the group multicast bit to be set
+			timeSequence = AppendStringToList(timeSequence, llList2String(startSeq, start)+"|"+(string)activeGroupBits+"|"+(string)Define_DanceStart+"|0");
+			timeSequence = AppendStringToList(timeSequence, llList2String(startSeq, start+1));
+			timeSequence = AppendStringToList(timeSequence, llList2String(startSeq, start)+"|"+(string)activeGroupBits+"|"+(string)Define_DanceStop+"|0");
+		}
+		else
+		{
+			timeSequence = AppendStringToList(timeSequence, llList2String(startSeq, start));
+		}
+	}
+	else
+	{
+		if (length == 2)
+		{
+			// Dances require the group multicast bit to be set
+			groupSequence = AppendStringToList(groupSequence, llList2String(startSeq, start)+"|"+(string)activeGroupBits+"|"+(string)Define_DanceStart+"|"+(string)groupCounter);
+			groupSequence = AppendStringToList(groupSequence, llList2String(startSeq, start+1));
+			groupSequence = AppendStringToList(groupSequence, llList2String(startSeq, start)+"|"+(string)activeGroupBits+"|"+(string)Define_DanceStop+"|"+(string)groupCounter);
+		}
+		else
+		{
+			groupSequence = AppendStringToList(groupSequence, llList2String(startSeq, start));
+		}
+	}
+}
+
+
+// Select the same items as a previous loop within a group had selected. This is very
+//  handy for couples dancing.
+//
+// Return=0 when we have done the selection already, return!=0 and selection happens by caller
+//
+// Note: We can only process LOOP, RANDOM and MIX keywords - add group, we just return
+integer SelectPreviousForLoop()
+{
+	list loopItem;
+	integer loopKeyword;
+	integer i;
+	integer j;
+	list tempList;
+	integer loopsLen;
+	integer loopOption;
+	
+	// First we check if the loop type and number of options match
+	loopItem = llParseString2List(llList2String(startSeq, loopStartsAt), ["|"], []);
+	loopKeyword = llList2Integer(loopItem, Define_SequenceKeyword);
+	
+	tempList = llParseString2List(llList2String(startSeq, prevLoopStarts), ["|"], []);	
+	if (llList2Integer(tempList, Define_SequenceKeyword) != loopKeyword)
+	{
+		Debug_MenuList("Previous - loop type did not match previous group/loop keyword type (current "
+						+(string)loopKeyword+", previous "+(string)llList2Integer(tempList, Define_SequenceKeyword)
+						+") - returning for caller to process");
+		return 1;
+	}
+	i = llList2Integer(loopItem, Define_SequenceParm1);
+	if (llList2Integer(tempList, Define_SequenceParm1) != i)
+	{
+		Debug_MenuList("Previous - loop counter did not match (current "+(string)i
+						+", previous "+(string)llList2Integer(tempList, Define_SequenceParm1)
+						+") - returning for caller to process");
+		return 1;
+	}
+
+	// Now check if the current loop number of options matches the previous group
+	//  length - if it doesn't - we're done :-)
+	if (llGetListLength(loops) != prevLoopNumOptions)
+	{
+		Debug_MenuList("Previous - number of options in loop did not match (current "
+						+(string)llGetListLength(loops)+", previous "+(string)prevLoopNumOptions
+						+") - returning for caller to process");
+		return 1;
+	}
+
+	// Now we know the loop type and option matched - we have to do the individual
+	//  loop as by keyword - except now we know what we will be selecting (instead
+	//  of randomly selecting)
+	if (loopKeyword == keywordLoop)
+	{
+		// Loops are pretty easy - just take ALL of the contents of the loop and do it the correct # of times...
+		loopOption = llList2Integer(loopItem, Define_SequenceParm1);
+		loopsLen = llGetListLength(loops);
+		Debug_MenuList("Previous - LOOP "+(string)loopOption+" times");
+		for (i = 0; i < loopOption; ++i)
+		{
+			for (j = 0; j < loopsLen ; ++j)
+			{
+				StoreIntoSequence(llList2Integer(loops, j), llList2Integer(loopsLength, j));
+			}
+		}
+		return 0;
+	}
+				
+	if (loopKeyword == keywordMix)
+	{
+		// Mix simply takes the selections from the previous instance
+		loopOption = llList2Integer(loopItem, Define_SequenceParm1);
+		loopsLen = llGetListLength(loops);
+		Debug_MenuList("Previous - MIX "+(string)loopOption+" times");
+		for (i = 0; i < loopOption; ++i)
+		{
+			StoreIntoSequence(llList2Integer(loops, llList2Integer(prevSelect, i)), llList2Integer(prevSelectLength, i));
+		}
+		return 0;
+	}
+				
+	if (loopKeyword == keywordRandom)
+	{
+		// Random is a lot like mix - except we don't delete the entry from the possible choices at the end of the loop...
+		loopOption = llList2Integer(loopItem, Define_SequenceParm1);
+		loopsLen = llGetListLength(loops);
+		Debug_MenuList("Previous - RANDOM "+(string)loopOption+" times");
+		for (i = 0; i < loopOption; ++i)
+		{
+			StoreIntoSequence(llList2Integer(loops, llList2Integer(prevSelect, i)), llList2Integer(prevSelectLength, i));
+		}
+		return 0;
+	}
+	
+	Debug_MenuList("Previous - keyword was not what we expected:"+(string)loopKeyword);
+	return 1;
+}
+
+
+// For each of the loop types - we need to select what needs to be danced and then
+//  store it in the appropriate place.
+//
+// Appropriate varies - without a group - append to the overall time sequence
+//  With an active group - append to the group time sequence
+SelectForLoop()
+{
+	list loopItem;
+	integer loopKeyword;
+	integer i;
+	integer j;
+	integer k;
+	integer l;
+	integer loopsLen;
+	integer loopOption;
+
+	loopItem = llParseString2List(llList2String(startSeq, loopStartsAt), ["|"], []);
+	loopKeyword = llList2Integer(loopItem, Define_SequenceKeyword);
+
+	// Each loop type is unique in it's handling...
+	// but worse is having to remember the previous selections and reusing them...
+	if (usePrevSelections != -1)
+	{
+		if (SelectPreviousForLoop() == 0)
+		{
+			Debug_MenuList("Selected from previous loop selections...");
+			return;
+		}
+		previousGroupStartsAt = -1;
+		usePrevSelections = -1;
+		prevLoopStarts = 0;
+		prevLoopNumOptions = 0;
+		prevSelect = [];
+		prevSelectLength = [];
+	}
+
+	if (loopKeyword == keywordLoop)
+	{
+		// Loops are pretty easy - just take ALL of the contents of the loop and do it the correct # of times...
+		loopOption = llList2Integer(loopItem, Define_SequenceParm1);
+		loopsLen = llGetListLength(loops);
+		Debug_MenuList("Selecting LOOP "+(string)loopOption);
+		for (i = 0; i < loopOption; ++i)
+		{
+			for (j = 0; j < loopsLen ; ++j)
+			{
+				StoreIntoSequence(llList2Integer(loops, j), llList2Integer(loopsLength, j));
+			}
+		}
+		return;
+	}
+				
+	if (loopKeyword == keywordMix)
+	{
+		// Mix is a little more involved - but not much...
+		//  We have to select N items - and do each select uniquely
+		//  SO... we cheat. We get the list length and pick something from it
+		//  copy the selection to the time sequence and then... we then replace the loopsLength entry
+		//  with a zero length - so that we can NOT select it then - if it is selected, we try again
+		loopOption = llList2Integer(loopItem, Define_SequenceParm1);
+		loopsLen = llGetListLength(loops);
+		prevSelect = [];
+		prevSelectLength = [];
+		Debug_MenuList("Selecting MIX "+(string)loopOption);
+		for (i = 0; i < loopOption; ++i)
+		{
+			// Pick a random entry in the list - and make sure it is one we can use (retry till we find one that isn't used)
+			//  We also don't trust the random number generator - especially as a unit test in lslplus as Frand always returns 0 (sigh)
+			//  SO - we check for number of retries - when we get to the whole length being used up - we simply revert to selecting
+			//  the next available item in the list. Boring - non-random - but does NOT loop forever.
+			j = (integer) llFrand((float) loopsLen);		
+			k = 0;	
+			while ((0 == llList2Integer(loopsLength, j)) && (k < loopsLen))
+			{
+				j = (integer) llFrand((float) loopsLen);
+				++k;
+			}
+			// Check if the Frand number was always zero - i.e. we never picked anything other than the first number
+			// If we didn't do anything better - may as well just walk down the list - look for the next unused value
+			// and use it - this avoids an infinite loop. We may need to put in a random number generator... hope not...
+			if (k == loopsLen)
+			{
+				j = 1;
+				while (0 == llList2Integer(loopsLength, j))
+				{
+					++j;
+				}
+			}
+			k = llList2Integer(loops, j);
+			l = llList2Integer(loopsLength, j);
+			StoreIntoSequence(k, l);
+			prevSelect = AppendIntegerToList(prevSelect, j);	// Remember selection (index in loops) for later
+			prevSelectLength = AppendIntegerToList(prevSelectLength, l);
+			loopsLength = ReplaceListEntry(loopsLength, [0], j);
+		}
+		return;
+	}
+				
+	if (loopKeyword == keywordRandom)
+	{
+		// Random is a lot like mix - except we don't delete the entry from the possible choices at the end of the loop...
+		loopOption = llList2Integer(loopItem, Define_SequenceParm1);
+		loopsLen = llGetListLength(loops);
+		Debug_MenuList("Selecting RANDOM "+(string)loopOption);
+		for (i = 0; i < loopOption; ++i)
+		{
+			j = (integer) llFrand((float) loopsLen);
+			k = llList2Integer(loops, j);
+			l = llList2Integer(loopsLength, j);
+			prevSelect = AppendIntegerToList(prevSelect, j);	// Remember index of loops selection for later
+			prevSelectLength = AppendIntegerToList(prevSelectLength, l);
+			StoreIntoSequence(k, l);
+		}
+		return;
+	}
+				
+	Debug_MenuList("Selecting from loop end - had a keyword of "+(string)loopKeyword+" which was not a loop type I understand");
+	return;
+}
+
+
+// At the end of a group, we need to merge the whole set of selections from the
+//  the group list into the time sequenced list.
+//
+// There are two possibilities here:
+//  1) First time we had a group - means we just append everything to the time sequence
+//  2) Second (or Nth) group in a row - which means we need to merge in this group
+//     sequence - much harder - BUT this lets several groups have unique dances per group
+MergeGroupSequence()
+{
+	integer i;
+	integer timeOffset;
+	integer timeSeqIndex;
+	integer timeSeqLength;
+	integer groupSeqLength = llGetListLength(groupSequence);
+	string groupItem;
+	list groupItemList;
+	list timeItemList;
+	integer timeEnded = FALSE;
+	integer flag;
+	integer timeSeqDelay;
+	integer groupSeqDelay;
+	integer advanceGroup;
+	integer loopAgain = TRUE;
+
+	// If we are the first group in a row - then we can just append the group sequence to the
+	//  overall time sequence - easy peasy - and get out of here.
+	if (!previousWasGroup)
+	{
+		groupDuration = 0;
+		for (i=0; i<groupSeqLength; ++i)
+		{
+			groupItem = llList2String(groupSequence, i);
+			groupItemList = llParseString2List(groupItem, ["|"], []);
+			if (llList2Integer(groupItemList, Define_SequenceKeyword) == keywordDelay)
+			{
+				groupDuration += llList2Integer(groupItemList, Define_SequenceParm1);
+			}
+		}
+		Debug_MenuList("First group - list of options appended - group duration overall is "+(string)groupDuration);
+		timeSequence = AppendListToList(timeSequence, groupSequence);
+		groupSequence = [];
+		return;
+	}
+	
+	// Now it's a little more difficult we need to merge in the sequence for this group
+	//  to where the group started at in the first place. The hope is that the additions
+	//  will simply fall into place - but we have to handle the cases of when they do not.
+	//
+	// The hope is to first insert before any delay - so all operations at the same time
+	//  are in order of the groups as specified. The next aspect is that any delay in the
+	//  additions will fall into three cases:
+	//  1) Durations match - easy - say we did it and continue
+	//  2) New duration is shorter - so we have to insert the shorter duration and then
+	//     update the previous duration to be shorter by the new duration - effective
+	//     elapsed time will be the same.
+	//  3) New duration is longer - we need to adjust the new duration downward and if
+	//     the time is beyond the group, then we insert the new duration at the end
+
+	Debug_MenuList("Nth group - Need to merge in this group sequence...");
+	// - Ok - what variables do we have to play with
+	// previousGroupStartsAt = index of first group in time sequence
+	// groupStartsAt - in time sequence - which doesn't do much good at all - useful to get previous though....
+	// list groupSequence = the current groups complete sequence
+
+	timeOffset = 0;			// When are we in the sequence
+	timeSeqIndex = previousGroupStartsAt;	// Where are we in the time sequence
+	Debug_MenuList("Reset timeSeqIndex to:"+(string)timeSeqIndex);
+	
+	// Iterate through the the whole group sequence until we run out of group sequence OR
+	//  we run out of duration (based on the duration of the first group)
+	advanceGroup = TRUE; // Time items may end up looping a while - so provide a way to do that
+	i = 0;
+	while ((i<groupSeqLength) && (timeOffset <= groupDuration) && loopAgain)
+	{
+		if (advanceGroup)
+		{
+			groupItem = llList2String(groupSequence, i);
+			groupItemList = llParseString2List(groupItem, ["|"], []);
+		}
+		else
+		{
+			advanceGroup = TRUE;
+		}
+
+		// No matter what the item is - get it and parse it and if we are not past the end of the
+		//  time sequence, then we have some work to do. If we are past the end - just append this item
+		if (!timeEnded)
+		{
+			// Before we do anything - we need to advance or be at the upcoming/current
+			//  delay in the time sequence - so check if we are on it or advance to it
+			timeSeqLength = llGetListLength(timeSequence);
+			flag = TRUE;
+			Debug_MenuList("Searching for a delay in the time sequence - starting at:"+(string)timeSeqIndex);
+			for( ; (timeSeqIndex < timeSeqLength) && flag; ++timeSeqIndex)
+			{
+				timeItemList = llParseString2List(llList2String(timeSequence, timeSeqIndex), ["|"], []);
+				if (llList2Integer(timeItemList, Define_SequenceKeyword) == keywordDelay)
+				{
+					flag = FALSE;
+					--timeSeqIndex;	// The ++ operator will hit before the compare - so decrease the index to make up for the increase...
+				}
+			}
+
+			// Ok - either we have found a delay (flag is set) or we have reached the end of the time sequence
+			if (!flag)
+			{
+				Debug_MenuList("Searching came to a delay in the time sequence at:"+(string)timeSeqIndex);
+				
+				// Not at the end of the time sequence - for anything other than a delay - just insert
+				if (llList2Integer(groupItemList, Define_SequenceKeyword) != keywordDelay)
+				{
+					timeSequence = InsertListToList(timeSequence, [groupItem], timeSeqIndex);
+					++timeSeqIndex;	// Inserted the non-delay - so increase back to the delay item in the time sequence
+				}
+				else
+				{
+					// We have a delay from the group - and we are at a delay on the time sequence
+					// If the delay values match - yahoo - landed on free parking, collect everything
+					//  and advance to go - we don't need to do anything but advance time overall for
+					//  the time sequence (and it's unclear we needed to do that)
+					groupSeqDelay = llList2Integer(groupItemList, Define_SequenceParm1);
+					timeSeqDelay = llList2Integer(timeItemList, Define_SequenceParm1);
+					Debug_MenuList("Handling delay - group delay="+(string)groupSeqDelay+" time seq delay="+(string)timeSeqDelay);
+					if (groupSeqDelay == timeSeqDelay)
+					{
+						Debug_MenuList("Delays matched - increment the overall time offset and increment our time sequence index");
+						timeOffset += groupSeqDelay;
+						++timeSeqIndex;
+					}
+					else
+					{
+						// Ok - two last choices - either the delay value is short from the group
+						//  or it's too long... let's handle the short case first...
+						if (groupSeqDelay < timeSeqDelay)
+						{
+							// The time sequence needs to split the time delay into two pieces
+							// The first part is the group sequence delay value, the second part
+							//  is the amount of time left in the time sequence delay. Then we advance
+							//  the time sequence to the second half of the delay. This lets the next
+							//  item in the sequence be inserted before the shorter delay - but after
+							//  the correct delay for the group item (yahoo!)
+							Debug_MenuList("Group delay was less than time sequence - so insert a group delay...");
+							flag = timeSeqDelay - groupSeqDelay;
+							groupItemList = [ (string)keywordDelay+"|"+(string)groupSeqDelay, (string)keywordDelay+"|"+(string)flag ];
+							timeSequence = ReplaceListEntry(timeSequence, groupItemList, timeSeqIndex);
+							++timeSeqIndex;
+							timeOffset += groupSeqDelay;
+						}
+						else
+						{
+							// The same kind of thing needs to happen again - but this time we have to
+							//  calculate the remaining part of the group sequence delay instead of the time
+							//  sequence delay and then advance time to the second delay value.
+							//  And also advance the time offset - although it doesn't really matter
+							//  (we don't use it for anything)
+							Debug_MenuList("Group delay was more than time sequence - so just subtract off the amount of time we already have in the dance sequence and loop around and parse the group time minus this entry of the group sequence...");
+							flag = groupSeqDelay - timeSeqDelay;
+							timeSequence = ReplaceListEntry(timeSequence, [ (string)keywordDelay+"|"+(string)timeSeqDelay ], timeSeqIndex);
+							groupItem = (string)keywordDelay+"|"+(string)flag;
+							groupItemList = [keywordDelay, flag];
+							++timeSeqIndex;
+							timeOffset += timeSeqDelay;
+							advanceGroup = FALSE;
+						}
+					}
+				}
+			}
+			else
+			{
+				// There are no more delays in the time sequence - if we do NOT have a delay - just append
+				// for a delay - we don't append, instead we set the flag to stop looping on this group
+				timeEnded = TRUE;
+				if (llList2Integer(groupItemList, Define_SequenceKeyword) != keywordDelay)
+				{
+					Debug_MenuList("Came to end of time sequence - and we are not adding a delay - so append it");
+					timeSequence = AppendStringToList(timeSequence, groupItem);
+				}
+				else
+				{
+					Debug_MenuList("Came to end of time sequence - and we have a delay - can't add it - set flag to end appending of this group - also notice it and log it");
+					loopAgain = FALSE;
+					timeOffset += llList2Integer(groupItemList, Define_SequenceParm1);
+					
+					// It will not come as a shocker to realize that after a delay exceeds the duration of the first
+					//  group - then we typically have a stop (or set of stops) for dance animations that we need to
+					//  just insert into the time sequence here. We do NOT add other kinds of actions here - just
+					//  the stop for the current item. As soon as we find a dance that stops, we add it and done.
+					// Note: We may NOT find one - as the user can make a sequence that has a delay that is too long
+					//  and wasn't a start of a dance... so check for the next item in the group sequence, if it
+					//  can exist and is a dance and is a stop of a dance - then insert it to the time sequence.
+					// (long winded way of saying we need to stop the dance we started for this group)
+					if (i+1 < groupSeqLength)
+					{
+						groupItem = llList2String(groupSequence, i+1);
+						groupItemList = llParseString2List(groupItem, ["|"], []);
+						if ((llList2Integer(groupItemList, Define_SequenceKeyword) == keywordDance) &&
+							(llList2Integer(groupItemList, Define_SequenceParm3) == Define_DanceStop))
+						{
+							Debug_MenuList("Next item in the group sequence is a dance stop - do we are appending this to the time sequence");
+							timeSequence = AppendStringToList(timeSequence, groupItem);
+						}
+					}
+				}
+			}
+		}
+		else
+		{
+			// Already pasted the end of the time sequence - if we do NOT have a delay - just append
+			// for a delay - we don't append, instead we set the flag to stop looping on this group
+			if (llList2Integer(groupItemList, Define_SequenceKeyword) != keywordDelay)
+			{
+				Debug_MenuList("Past end of time sequence - and we are not adding a delay - so append it");
+				timeSequence = AppendStringToList(timeSequence, groupItem);
+			}
+			else
+			{
+				Debug_MenuList("Past end of time sequence - and we have a delay - can't add it - set flag to end appending of this group - also notice it and log it");
+				loopAgain = FALSE;
+				timeOffset += llList2Integer(groupItemList, Define_SequenceParm1);
+				
+				// It will not come as a shocker to realize that after a delay exceeds the duration of the first
+				//  group - then we typically have a stop (or set of stops) for dance animations that we need to
+				//  just insert into the time sequence here. We do NOT add other kinds of actions here - just
+				//  the stop for the current item. As soon as we find a dance that stops, we add it and done.
+				// Note: We may NOT find one - as the user can make a sequence that has a delay that is too long
+				//  and wasn't a start of a dance... so check for the next item in the group sequence, if it
+				//  can exist and is a dance and is a stop of a dance - then insert it to the time sequence.
+				// (long winded way of saying we need to stop the dance we started for this group)
+				if (i+1 < groupSeqLength)
+				{
+					groupItem = llList2String(groupSequence, i+1);
+					groupItemList = llParseString2List(groupItem, ["|"], []);
+					if ((llList2Integer(groupItemList, Define_SequenceKeyword) == keywordDance) &&
+						(llList2Integer(groupItemList, Define_SequenceParm3) == Define_DanceStop))
+					{
+						Debug_MenuList("Next item in the group sequence is a dance stop - do we are appending this to the time sequence");
+						timeSequence = AppendStringToList(timeSequence, groupItem);
+					}
+				}
+			}
+		}
+		
+		if (advanceGroup)
+			++i;
+	}
+
+	// Handle the case where the new group has a duration that is longer than the first group was...
+	// We are simply going to tell the user that they have a problem and what we did
+	Debug_MenuList("Merging - end - timeOffset:"+(string)timeOffset+"  groupDuration:"+(string)groupDuration+"  i:"+(string)i+"  groupSeqLength:"+(string)groupSeqLength);
+	if ((timeOffset != groupDuration) || (i < groupSeqLength))
+	{
+		// Start over from the beginning and calculate an accurate duration of the second(Nth) group
+		//  We do this because we could have been in the middle of a delay item and didn't quite add
+		//  all of the delay in correctly - best to get an accurate calculation here.
+		timeOffset = 0;
+		for (i=0; i<groupSeqLength; ++i)
+		{
+			groupItem = llList2String(groupSequence, i);
+			groupItemList = llParseString2List(groupItem, ["|"], []);
+			if (llList2Integer(groupItemList, Define_SequenceKeyword) == keywordDelay)
+			{
+				timeOffset += llList2Integer(groupItemList, Define_SequenceParm1);
+			}
+		}
+	
+		groupItem = llList2String(llParseString2List(llList2String(startSeq, groupStartedInSeqAt), ["|"], []), Define_SequenceParm3);
+		if (timeOffset > groupDuration)
+		{
+			OwnerSay("LMSG011", [sequencename, groupItem, (string)((float)timeOffset/10.),
+					 llList2String(llParseString2List(llList2String(startSeq, prevGroupStartedInSeqAt), ["|"], []), Define_SequenceParm3),
+					 (string)((float)groupDuration/10.), groupItem] );
+		}
+		else
+		{
+			OwnerSay("LMSG013", [sequencename, groupItem, (string)((float)timeOffset/10.),
+					 llList2String(llParseString2List(llList2String(startSeq, prevGroupStartedInSeqAt), ["|"], []), Define_SequenceParm3),
+					 (string)((float)groupDuration/10.), groupItem] );
+		}
+	}
+	
+	groupSequence = [];
+	return;
+}
+
+
+// We have to transform a dance sequence into a time sequence - this is so that
+// group and loop (mix, random, loop) keywords take effect before we even start the
+// sequence at all - we do it here so that the dance master does NOT do anything except
+// for just playing back the sequence - in order - no groups/loop/mix/random for it at all.
+// (makes that component much simplier - just makes this one BIG is all)
+ReorderSequenceToTimeSequence()
+{
+	integer startSeqLen;
+	integer i;
+	list seqItem;
+	integer keyword;
+
+
+	// Initialize all our pretty variables that we need to manage for the whole sequence
+	loops = [];
+	loopsLength = [];
+	loopActive = FALSE;
+	loopStartsAt = 0;
+	groupSequence = [];
+	groupStartsAt = 0;
+	activeGroupBits = Define_GroupAllBits;
+	groupActive = FALSE;
+	previousWasGroup = FALSE;
+	groupCounter=0;
+	
+
+	// Translate the string sequence into a pretty list and let's loop through the whole list...
+	startSeqLen = llGetListLength(startSeq);
+
+	for (i = 0; i < startSeqLen; ++i)
+	{
+		// Get the keyword id for this command on the dance sequence and see what we need
+		//  to do about it - could remember, or start a loop/group or end a loop/group/sequence
+		//  or we may just skip it completely (like NAME or ALIAS)
+		seqItem = llParseString2List(llList2String(startSeq, i), ["|"], []);
+		keyword = llList2Integer(seqItem, Define_SequenceKeyword);
+		
+		
+		// Ok - we have a couple of possibilities here
+		//  1) We are not in any group or any loop at all - this is easy - just append to the time sequence
+		//  2) We are not in a group, but are in a loop - also pretty easy - just remember the index of each
+		//     item in the loop so that we can use the loop selection criteria in a bit and just put what was
+		//     selected into the time sequence
+		//  3) We are in a group - but not in a loop - We put everything of the group into a group selection
+		//     sequence. The reason is that this could be the first or the Nth group of the sequence and we need
+		//     to time order each of the groups into the time sequence. We do NOT want to do this shuffling all
+		//     over - so we build a group time sequence first and then insert that into the overall time sequence
+		//  4) We are in a group - and in a loop - worst case - but easier than 3 - just remember the loop
+		//     items and when the loop comes to an end - we select appropriately and put them into the group
+		//     sequence overall. When the group ends - it will be merged into the time sequence.
+		// Tada - that's the overall plan - let's see how we do this now...
+		
+		
+		// #1 - start with no group or loop of any kind - and just plunk items into the time sequence
+		//  (basically any keyword that needs to be there...) There are SOME keywords that don't ever make
+		//  it to the time sequence - like [name] or [alias] - so filter a little bit here.
+		if (!groupActive && !loopActive)
+		{			
+			// If we have one of the keywords that we pass along - just add it to the new timed sequence
+			//   Dances are unique in that they take the delay also after them...
+			if (keyword == keywordDance)
+			{
+				StoreIntoSequence(i, 2);
+				++i;
+			}
+			if (-1 != llListFindList([ keywordDelay, keywordDialog, keywordGive, keywordIM, keywordMessage, keywordOwner_say,
+										keywordRand, keywordRegion_say, keywordSay, keywordSetname, keywordShout,
+										keywordWhisper, keywordNextSequence, keywordRepeat, keywordStop], [keyword]))
+			{
+				StoreIntoSequence(i, 1);
+			}
+
+			// Group commands are special - we know that only one active group can happen at a time
+			//  BUT that there can be several groups in a row (that all use the same selections in
+			//  their loops within the groups).
+			// We simply want to remember that we are in a group - where it started
+			if (keyword == keywordGroup)
+			{			
+				Debug_MenuList("Starting group - previousWasGroup:"+(string)previousWasGroup);
+				groupStartsAt = llGetListLength(timeSequence);
+				groupActive = TRUE;
+				activeGroupBits = llList2Integer(seqItem, Define_SequenceParm2);
+				if (previousWasGroup && llList2String(seqItem, Define_SequenceParm1) == "SAME")
+				{
+					Debug_MenuList("Secondary group - same");
+					usePrevSelections = 0;
+					++groupCounter;
+					if (prevGroupStartedInSeqAt == -1)
+					{
+						prevGroupStartedInSeqAt = groupStartedInSeqAt;
+					}
+				}
+				else
+				{
+					// Not a group that is the same as previous one - so clear the history
+					Debug_MenuList("Secondary group - different");
+					previousGroupStartsAt = -1;
+					prevGroupStartedInSeqAt = -1;
+					usePrevSelections = -1;
+					prevLoopStarts = 0;
+					prevLoopNumOptions = 0;
+					prevSelect = [];
+					prevSelectLength = [];
+					groupCounter = 0;
+				}
+				groupStartedInSeqAt = i;
+			}
+			else
+			{
+				// If we had a previous group - now's where we clear it all up
+				if (previousWasGroup)
+				{
+					previousWasGroup = FALSE;
+					previousGroupStartsAt = -1;
+					prevGroupStartedInSeqAt = -1;
+					usePrevSelections = -1;
+					prevLoopStarts = 0;
+					prevLoopNumOptions = 0;
+					prevSelect = [];
+					prevSelectLength = [];
+					groupCounter = 0;
+				}
+			}
+			
+			// The loop and group commands are special - they open a loop/group and do NOT belong in
+			//  the time sequenced commands. We need to remember the time stamp of when we started
+			//  them and if we are starting at the same place as a previous loop/group.
+			if (-1 != llListFindList([keywordLoop, keywordMix, keywordRandom], [keyword]))
+			{
+				Debug_MenuList("Starting list");
+				loopStartsAt = i;
+				loopActive = TRUE;
+				loops = [];
+				loopsLength = [];
+			}
+		}
+		else
+		{
+			// #2 and #4 - loop active - remember the index numbers of the input of the loop
+			//  items so that we can select from them. Dance is a little unique as with it will come the
+			//  delay keyword - otherwise - loop is pretty boring till we get to the end keyword.
+			if (loopActive)
+			{
+				if (keyword == keywordDance)	// Dances add 2 items (dance and delay)
+				{
+					Debug_MenuList("Loop - add dance at "+(string)i);
+					loops = AppendIntegerToList(loops, i);
+					loopsLength = AppendIntegerToList(loopsLength, 2);
+					++i;
+				}
+				else
+				{
+					if (-1 != llListFindList([ keywordDelay, keywordDialog, keywordGive, keywordIM, keywordMessage, keywordOwner_say,
+												keywordRand, keywordRegion_say, keywordSay, keywordSetname, keywordShout,
+												keywordWhisper, keywordNextSequence, keywordRepeat, keywordStop], [keyword]))
+					{
+						Debug_MenuList("Loop - add "+(string)keyword+" at "+(string)i);	
+						loops = AppendIntegerToList(loops, i);
+						loopsLength = AppendIntegerToList(loopsLength, 1);
+					}
+
+					// If the keyword is an end - we need to select from the loop what actually gets done
+					if (keyword == keywordEnd)
+					{
+						Debug_MenuList("Loop was ended at "+(string)i);	
+						// For the first group only - remember the size of each of the loops options
+						if ((groupActive) && (previousGroupStartsAt == -1))
+						{
+							prevLoopNumOptions = llGetListLength(loops);
+							Debug_MenuList("Group was active - and first list - so remember list ended length of "+(string)prevLoopNumOptions);	
+						}
+						SelectForLoop();
+						activeGroupBits = Define_GroupAllBits;
+						loopActive = FALSE;
+					}
+
+					// Inside of a loop - we do NOT check for GROUP or LOOP related keywords at all - just skip them
+				}
+			}
+			else
+			{
+
+				// #3 - we are in a group - simply put the dance sequence item into the group sequence
+				if (groupActive)
+				{
+					// If we have one of the keywords that we pass along - just add it to the new timed sequence
+					// (I have NO idea why you would want different groups to have these keywords... but - let's
+					//  say for the sake of arguement that you would - eeps)
+					if (keyword == keywordDance)
+					{
+						StoreIntoSequence(i, 2);
+						++i;
+					}
+				
+					if (-1 != llListFindList([ keywordDelay, keywordDialog, keywordGive, keywordIM, keywordMessage, keywordOwner_say,
+												keywordRand, keywordRegion_say, keywordSay, keywordSetname, keywordShout,
+												keywordWhisper, keywordNextSequence, keywordRepeat, keywordStop], [keyword]))
+					{
+						Debug_MenuList("Group add "+(string)keyword+" at "+(string)i);
+						StoreIntoSequence(i, 1);
+					}
+
+					// The loop commands are special - they open a loop and do NOT belong in the time sequenced
+					//  commands. We remember each of the items in the loop for later selection.
+					if (-1 != llListFindList([keywordLoop, keywordMix, keywordRandom], [keyword]))
+					{
+						Debug_MenuList("Group started a loop "+(string)keyword);	
+						loopActive = TRUE;
+						loopStartsAt = i;
+				
+						// Remember where the loop starts at - but only for the first group to need them
+						if (previousGroupStartsAt == -1)
+						{
+							prevLoopStarts = i;
+						}
+
+						loops = [];
+						loopsLength = [];
+					}
+
+					// The end of a group triggers something that is kind of interesting - we have to merge
+					//  the group time sequenced events into the overall time sequenced list
+					if (keyword == keywordEnd)
+					{
+						Debug_MenuList("Group ended a loop - need to merge into time sequence");
+						groupActive = FALSE;
+						MergeGroupSequence();
+						previousWasGroup = TRUE;
+						activeGroupBits = Define_GroupAllBits;
+						if (previousGroupStartsAt == -1)
+						{
+							previousGroupStartsAt = groupStartsAt;
+						}
+					}
+				}	// End if (groupActive)
+			}	// End if (loopActive)
+		}	// End if (!groupActive && !loopActive)
+	}	// End for each item in dance sequence
+}
+
+
+// Optimize the time sequence... we have already merged in the groups/loops into
+//  the time sequence. But, we may have extra dance stop events. The idea of this
+//  routine is simply to loop through the time sequence, find collections of
+//  dance stop/start between delays. If we find a stop/start between a delay
+//  AND the stop is the same dance index, then we can elimiate the dance stop
+//  (as the dance controller does this automatically for us on the start of
+//  the next dance animation of the same index)
+//
+// We can also elimate the very last stop dance request for dance index 0
+//  - Why? this is all about leaving the last dance active so that if we have
+//  a delay in going to the next dance, we continue to do something that makes
+//  sense - just keep dancing the last dance.
+OptimizeTimeSequence()
+{
+	integer i;
+	integer j;
+	integer k;
+	integer danceIndex;
+	list itemList;
+	integer len;
+	list deleteUs = [];
+	integer deleteUsLen = 0;
+	integer notDoneYet;
+	integer lastDanceStop=-1;
+
+	// Loop through the time sequence
+	len = llGetListLength(timeSequence);
+	for (i=0; i < len; ++i)
+	{
+		// Loop looking for a dance that stops
+		itemList = llParseString2List(llList2String(timeSequence, i), ["|"], []);
+		if (llList2Integer(itemList, Define_SequenceKeyword) == keywordDance)
+		{
+			if (llList2Integer(itemList, Define_SequenceParm3) == Define_DanceStop)
+			{
+
+				// Ok - found a dance that is stopping - peek ahead in the sequence
+				//  and see if there is another dance that starts with the same
+				//  dance index within this group of time (i.e. before a delay)
+				danceIndex = llList2Integer(itemList, Define_SequenceParm4);
+				if (danceIndex == 0)
+				{
+					lastDanceStop = i;
+				}
+
+				notDoneYet = TRUE;
+				for (j=i+1; (j < len) && notDoneYet; ++j)
+				{
+					itemList = llParseString2List(llList2String(timeSequence, j), ["|"], []);
+					k = llList2Integer(itemList, Define_SequenceKeyword);
+					if (k == keywordDelay)
+					{
+						notDoneYet = FALSE;
+					}
+					else
+					{
+						if (llList2Integer(itemList, Define_SequenceKeyword) == keywordDance)
+						{
+							if ((llList2Integer(itemList, Define_SequenceParm3) == Define_DanceStart) &&
+								(llList2Integer(itemList, Define_SequenceParm4) == danceIndex))
+							{
+								// Yahoo! We found one - add it to the list of items to delete and on we go...
+								deleteUs = AppendIntegerToList(deleteUs, i);
+								++deleteUsLen;
+								notDoneYet = FALSE;
+								if (i == lastDanceStop)
+								{
+									lastDanceStop = -1;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if (lastDanceStop != -1)
+	{
+		deleteUs = AppendIntegerToList(deleteUs, lastDanceStop);
+		++deleteUsLen;
+	}
+
+	// Ok - if we have anything to elimate from the time sequence, let's take them out
+	// starting at the last item and going backwards - this makes it nice and easy
+	// as we don't need to play funny games with what is missing from the time sequence.
+	if (deleteUsLen > 0)
+	{
+		Debug_MenuList("Optimize time sequence found "+(string)deleteUsLen+" dance stops that can be removed - dropping them from the time sequence");
+		for (i=0; i<deleteUsLen; ++i)
+		{
+			j = llList2Integer(deleteUs, (deleteUsLen-1)-i);
+			timeSequence = DeleteListEntry(timeSequence, j);
+		}
+	}
+}
+
+default
+{
+
+	state_entry()
+	{
+		// Nothing special here...
+	}
+
+
+	// Link messages can receive two strings - the key is a special flavor of string
+	//  that if we just typecast correctly, we can pass two strings just fine.
+	link_message(integer sender_num, integer num, string str, key id)
+	{
+		if (Define_PREPARELINKID == num)
+		{
+			startSeq = llParseString2List(str,["|"],[]);
+			if (Prepare_PrepareSequence == llList2Integer(startSeq,0))
+			{
+				string replyStr;
+
+				sequencename = llList2String(startSeq, 1);
+				returnLink = llList2Integer(startSeq, 2);
+				replyStr = llList2String(startSeq, 3);
+				integer fromLinkId = llList2Integer(startSeq,4);
+
+				startSeq = llParseString2List((string) id, ["|||"], []);
+				ReorderSequenceToTimeSequence();
+				OptimizeTimeSequence();
+				
+				llMessageLinked(LINK_THIS, returnLink, replyStr+"|"+sequencename+"|"+(string)fromLinkId, (key)llDumpList2String(timeSequence,"|||"));
+				
+	
+				// Clear lists and strings to get back some memory...
+				sequencename = "";
+				timeSequence = [];
+				loops = [];
+				loopsLength = [];
+				prevSelect = [];
+				prevSelectLength = [];
+				groupSequence = [];
+				startSeq = [];
+			}
+			return;
+		}
+
+		if ((num == 0) && (str == "RESET"))
+			llResetScript();
+	}
+}
+

@@ -1,0 +1,680 @@
+// This script is responsible for making all of the slave (DanceController's) execute a dance sequence.
+//
+// We completely control the dance sequence here:
+// 1) We get told which sequence to start (by name and the sequence itself is sent to us! (already time ordered)
+// 2) Use a highly accurate timer to send appropriate messages to the dance controllers
+//
+// The basic idea is that we can start a dance (which can run to the end or be stopped) and anytime
+//  the user wants to stop the dance - we go into a wait sequence. Stopping stops ALL animations for
+//  everyone.
+//
+// We also are a little smart on the start of ANY sequence - because the first animation of a
+// sequence will be used to stop ALL secondary animations of a previous sequence. This is also
+// why we don't at the end of a sequence stop the last dance animation - we wait till the next
+// sequence starts. All to prevent any lag at all for transitions.
+//
+//
+// Interesting aspect of this script - it does NOT know if anyone is dancing. It only controls dance groups.
+//
+// Note: We do NOT change case or trim any input at all.
+//
+// The timer handling is a little non-standard - but this allows us to have very accurate timing.
+// We set a timer to go off a little bit early and then spin in a loop for a little while to complete
+// the correct delay. This was based on the Precision Time idea from:
+//     http://lslwiki.net/lslwiki/wakka.php?wakka=LibraryPrecisionTime
+// Except, they didn't read what the APIs are actually - so they parse a string to get a timestamp
+// which is fairly useless cycles from my perspective. We need a very accurate timer because the dance
+// sequences are timed pretty well - we want to make sure to hit the time delays correctly instead
+// of 'kind of close'.
+
+#include "Trace"
+#ifdef UNIT_TEST_TRACING
+#define MODULE "FSDanceControl"
+#endif
+#include "GlobalDefinitions"
+#include "DanceControl.h"
+#include "Dancers.h"
+#include "Dancer.h"
+#include "Lists.h"
+#include "MenuList.h"
+#include "Chat.h"
+#include "Services.h"
+#include "Debug"
+#include "Keywords"
+#include "Utility"
+#include "UtilOwnerSay"
+
+// Define values for what the sequence index could be (also flag indicating if we are busy doing something)
+#define SEQ_INDEX_INACTIVE -1
+#define SEQ_INDEX_WAITINGFORREPLY -2
+
+// Overal time sequence infrastructure
+list timeSequence = ["2|stand_1","3|3000","19"];	// Default starting sequence is a wait sequence of stand_1 that loops - it's really boring
+									// List of time ordered dance sequence items that are used to execute during the dance sequence
+									// ONLY the keywords and parameters of actions required are on this list!
+integer timeSeqLength = 3;			// Length of dance sequence
+integer timeSeqIndex = 0;			// Where are we on the list of things to do? (initially pretend we are in the wait sequence)
+string seqName = "startup wait";	// Dance sequence name that is currently active
+integer seqNumber = 0;				// What is the dance sequence number?
+float delayValue = 0.0;				// How long was the total delay from the current time sequence item?
+float shortenDelayBy = 0.020;		// How much time do we subtract from the delay to wake up early and loop a little bit?
+list seqItem = [];					// Current item in time sequence
+integer danceFromMenu = Define_INVENTORYANIMLINKID;			// Which menu link number did this dance come from? (initially inventory)
+integer danceStopsOthers = DanceFlagDoNotStopOtherAnimations;	// Flag for if we stop secondary animations when we start an animation
+									//  of any dance/wait sequence (usually the first dance, but also for sync points)
+integer currentKeyword = 0;			// What is the keyword we are currently executing (from a dance sequence)
+integer accurateTimer = 1;		// Do we use an accurate timer or not?
+string lastAnimStarted = "stand_1";	// What was the last animation we started? (sent to group all)
+float danceElapsedTime = 0.0;		// Total time elapsed while dancing the current dance.
+integer deferredStarted = FALSE;	// Flag for indicating we had previously started a deferred sequence (got the first set of directions for it)
+integer useDefaultDuration = FALSE;	// Do we use the default dance duration? (default = NO!)
+integer defaultDanceDuration = DefaultDanceDuration;	// Default dance duration - bleck
+
+list remembered = [];				// List of dance animations/delays that we have danced (freestyle recording)
+integer rememberFlag = FALSE;		// Are we in recording mode?
+string rememberDance = "";			// Dance animation we last started (for all dancers)
+integer rememberMenu = 0;			// Which menu do we send the dance sequence to?
+integer lastSyncPoint = 0;			// Where should we sync all the dancers to? (default of start of sequence)
+
+list giveFromSequence = [];			// List of all the places in the sequence where we gave something away to the dancers
+
+integer warnMissingAnim = TRUE;		// Tell the user when we find out that the dance animation is missing from inventory (sigh)
+integer disableRepeat = FALSE;		// Is the [repeat] keyword enabled or not?
+integer danceSequenceFlag = TRUE;	// Is the current sequence a dance sequence or a wait sequence?
+
+string tmpStr = "";
+list tmpList = [];
+integer i = 0;
+integer j = 0;
+integer k = 0;
+float t;
+
+
+// Define all of the action aspects of each keyword we have to do something about
+
+// pragma inline
+ActionForDance()
+{
+	// Send dance to appropriate group via linked message - the idea is that the time ordered sequence
+	//  not only got the dances in the right order BUT that every dance has a multicast setting too.
+	//  We use this multicast bit to send the message to all of the dancers who are in the group - which
+	//  means that we don't really care about the target for sure. The dance controller will do the
+	//  correct starting/stopping for us.
+	
+	// Now the dance came with a flag to indicate a start or a stop.
+	i = llList2Integer(seqItem, Define_SequenceParm3);	// Get the dance start/stop flag parameter
+	Debug_DanceControl("Dance - startflag:"+(string)i);
+	if (i == Define_DanceStart)
+	{
+		tmpStr = llList2String(seqItem, Define_SequenceParm1);	// #1 is the dance animation name
+		i = llList2Integer(seqItem, Define_SequenceParm2);		// #2 is multicast bits
+		k = llList2Integer(seqItem, Define_SequenceParm4);		// #4 is dance index of the controller
+		
+		// If we are looking for missing animations AND the animation is NOT stand_1 (our good old standing animation
+		//  that really just stands still...) then we get to check if the animation is in inventory or not
+		//  (mostly - I hate this check here... but folks expect to get told when they dance instead of
+		//   when the load a notecard - dumb dumb dumb - we substitute in stand_1 when the animation is missing).
+		if (warnMissingAnim && (tmpStr != Define_DefaultWaitAnimation))
+		{
+			if (INVENTORY_ANIMATION != llGetInventoryType(tmpStr))
+			{
+				OwnerSay("DCMSG019", [ tmpStr, seqName, Define_DefaultWaitAnimation ]);
+				tmpStr = Define_DefaultWaitAnimation;
+			}
+		}
+		MessageStartGroupDancing(i, k, tmpStr, danceStopsOthers);
+		danceStopsOthers = DanceFlagDoNotStopOtherAnimations;
+
+		// Remember the last animation we started on the all group
+		if (i == Define_GroupAllBits)
+		{
+			lastAnimStarted = tmpStr;
+
+			// If we are remembering all dances - then this is a good time to get the dance animation and remember
+			// it as a a dance.
+
+			rememberDance = tmpStr;
+			if (rememberFlag)
+			{
+				tmpStr = llDumpList2String([keywordDance,tmpStr],"|");
+				remembered = AppendStringToList(remembered, tmpStr);
+			}
+		}
+		
+		// If we started an index 0 dance (which is our primary indicator of a sync point) then remember
+		//  this sync point - for if we get a sync request
+		if (k == 0)
+			lastSyncPoint = timeSeqIndex;
+
+		// We reset the script time after we send the message so that the idea is that this scripts
+		//  timer started when the message was delivered - so the dance should have started at
+		//  as close to this time. The next keyword in any sequence is a delay - so by starting
+		//  the clock early, we actually are closer to timing the dance instead of timing the
+		//  delay accurately (hmm... interesting).
+		llResetTime();
+		danceElapsedTime = 0.0;
+	}
+	else
+	{
+		if (i == Define_DanceStop)
+		{
+			i = llList2Integer(seqItem, Define_SequenceParm2);
+			j = llList2Integer(seqItem, Define_SequenceParm4);
+			MessageStopGroupDancing(i, j);
+				// #2 is multicast bits & #4 is the dance index for the controllers
+		}
+	}
+}
+
+// When setting the timer event - if we are using the default duration, then we need
+//  to ensure that the total duration of the dance is not beyond the default dance duration.
+//  So we calculate the correct delay based on the default duration and the elapsed time.
+//
+// Note: We ONLY use the default timer if it is a dance sequence - wait sequences are NOT
+//  subject to the default dance duration timer.
+#define SetTimerEvent(value)			\
+	t = (value);						\
+	if (useDefaultDuration && danceSequenceFlag)	\
+	{									\
+		if ((danceElapsedTime + t) > (float) defaultDanceDuration)		\
+			t = ((float) defaultDanceDuration) - danceElapsedTime;		\
+	}			\
+	llSetTimerEvent(t)
+ 
+
+// pragma inline
+ActionForDelay()
+{
+	float currentTime = llGetAndResetTime();
+
+	// If there has not been a delay specified - we will set the default dance delay value
+	k = llList2Integer(seqItem, 1);
+	if (Define_DefaultNoDelayAfterDance == k)
+		k = Define_DefaultDanceDuration;
+
+	danceElapsedTime += currentTime;
+	delayValue = (((float) k) / 10.0) - currentTime;	// Subtract off the delay of execution till this point from when the animation was started...
+	SetTimerEvent(delayValue - (shortenDelayBy * (float) accurateTimer));
+}
+
+// pragma inline
+ActionForDialog()
+{
+	seqItem = llParseString2List(llList2String(seqItem, 1), [","], []);
+	tmpStr = llList2String(seqItem, 0);	// And the message that is on the dialog
+	i = llList2Integer(seqItem, -1);		// This is the dialog channel #
+	j = llGetListLength(seqItem);
+	seqItem = DeleteListEntry(seqItem, 0);  // Remove last and first items from list - rest are buttons
+	seqItem = DeleteListEntry(seqItem, -1);
+	llDialog(llGetOwner(), tmpStr, seqItem, i);
+	Trace("ActionForDialog",tmpStr)
+}
+
+// pragma inline
+ActionForGive()
+{
+	// First we check if the list of give indicies contain the current location from this sequence
+	// The reasoning goes like this - we have a sequence that goes like: [give]something | dance | 30 | [repeat]
+	//  this will cause a 'something' to be given out every 30 seconds. Not a wonderful thing at all.
+	//  So - we filter - first instance goes on through, next we stop them and don't give the same
+	//  thing over and over and over. You can give multiple things - which is why we check the current
+	//  time sequence index.
+	if (-1 == llListFindList(giveFromSequence, [timeSeqIndex]))
+	{
+		giveFromSequence = AppendIntegerToList(giveFromSequence, timeSeqIndex);
+		
+		// Send item to all dancers via the dance controller (so we don't need to know the dancer keys at all here)
+		tmpStr = llList2String(seqItem, Define_SequenceParm1);
+		if (INVENTORY_NONE != llGetInventoryType(tmpStr))
+		{
+			if ((llGetInventoryPermMask(tmpStr, MASK_OWNER) & (PERM_TRANSFER|PERM_COPY)) == (PERM_TRANSFER|PERM_COPY))
+				MessageSendGroupItem(tmpStr);
+			else
+				OwnerSay("DCMSG021", [ tmpStr ] );
+		}
+		else
+			OwnerSay("DCMSG020", [ tmpStr ] );
+	}
+}
+
+// pragma inline
+ActionForIM()
+{
+	// Send IM to all dancers via the dance controller (so we don't need to know the dancer keys at all here)
+	tmpStr = llList2String(seqItem, Define_SequenceParm1);
+	MessageSendGroupIM(tmpStr);
+}
+
+// pragma inline
+ActionForMessage()
+{
+	llSay(llList2Integer(seqItem, 1), llList2String(seqItem, 2));
+	Trace("ActionForMessage",(string)timeSeqIndex)
+}
+
+// pragma inline
+ActionForNextSequence()
+{
+	tmpStr = llList2String(seqItem, Define_SequenceParm1);
+	timeSeqIndex = SEQ_INDEX_WAITINGFORREPLY;
+		// Go get the time sequence for the dance sequence
+	MessageSelect(danceFromMenu, tmpStr);
+}
+
+// pragma inline
+ActionForOwner_say()
+{
+	llOwnerSay(llList2String(seqItem, Define_SequenceParm1));
+	Trace("ActionForOwnerSay",(string)timeSeqIndex)
+}
+
+// pragma inline
+ActionForRand()
+{
+	// Rand is like Delay - except we have a random part and then a constant part (which is optional)
+	tmpList = llParseString2List(llList2String(seqItem, Define_SequenceParm1), [" "], []);
+	delayValue = llFrand(llList2Float(tmpList, 0) / 10.0);	// Make up the random part
+	if (llGetListLength(tmpList) > 1)
+		delayValue += llList2Float(tmpList, 1) / 10.0;
+	if (delayValue < (shortenDelayBy * accurateTimer))
+		delayValue += 2. * (shortenDelayBy * (float) accurateTimer);
+
+	float currentTime = llGetAndResetTime();
+	danceElapsedTime += currentTime;
+	
+	Trace("ActionForRand",(string)timeSeqIndex)
+	SetTimerEvent(delayValue - (shortenDelayBy * (float) accurateTimer));
+}
+
+// pragma inline
+ActionForRegion_say()
+{
+	i = llList2Integer(seqItem, Define_SequenceParm1);
+	if (i == 0)		// RegionSay doesn't work for channel 0 (so says lslwiki.net)
+		llShout(0, llList2String(seqItem, Define_SequenceParm2));
+	else
+		llRegionSay(i, llList2String(seqItem, Define_SequenceParm2));
+	Trace("ActionForRegion_say",(string)i)
+}
+
+// pragma inline
+ActionForRepeat()
+{
+	// To repeat -  we need to stop all of the dances of the current sequence
+	if (!disableRepeat)
+	{
+		MessageStopGroupDancing(Define_GroupAllBits, DancerFlagStopAllDances);
+		timeSeqIndex = -1;	// Return will bump this back to zero - so repeating...
+	}
+}
+
+// pragma inline
+ActionForSay()
+{
+	llSay(llList2Integer(seqItem, Define_SequenceParm1), llList2String(seqItem, Define_SequenceParm2));
+	Trace("ActionForSay",(string)timeSeqIndex)
+}
+
+// pragma inline
+ActionForSetname()
+{
+	llSetObjectName(llList2String(seqItem, Define_SequenceParm1));
+	Trace("ActionForSetname",(string)timeSeqIndex)
+}
+
+// pragma inline
+ActionForShout()
+{
+	llShout(llList2Integer(seqItem, Define_SequenceParm1), llList2String(seqItem, Define_SequenceParm2));
+	Trace("ActionForShout",(string)timeSeqIndex)
+}
+
+// pragma inline
+ActionForStop()
+{
+	// Stop doesn't do anything - the next animation we start will stop all animations...
+	// funny that [stop] does nothing - kind of like brakes that don't stop the car.
+	Trace("ActionForStop",(string)timeSeqIndex)
+}
+
+// pragma inline
+ActionForWhisper()
+{
+	llWhisper(llList2Integer(seqItem, Define_SequenceParm1), llList2String(seqItem, Define_SequenceParm2));
+	Trace("ActionForWhisper",(string)timeSeqIndex)
+}
+
+// pragma inline
+ActionForZZZDefer()
+{
+	MessageStartedSequence(llList2String(seqItem, Define_SequenceParm1), llList2Integer(seqItem, Define_SequenceParm2));
+}
+
+
+// Define all of the operations required for each token in ordering the sequence
+//  The basic operation will be to simply append an action to the dance sequence
+//  The group/loop commands will be a little different as they have effects on the
+//  time sequencing of the list.
+
+// Include the binary search routines to order sequences by time OR execute the dance sequence
+#include "include/KeywordSearch"
+
+
+// If we were recording a sequence of animations for freestyle dancing - now is a good time to send it to the menu
+SendFreestyleSequence()
+{
+	if (llGetListLength(remembered) > 0)
+	{
+		tmpStr = llDumpList2String(remembered, "|||");
+		MessageAddFreestyle(rememberMenu, tmpStr);
+		remembered = [];
+	}
+}
+
+
+LoopThroughSequence()
+{
+	// Loop through the sequence till we either:
+	//  1) Hit the end of the time sequence (done dancing this one)
+	//  2) Hit a delay keyword - so we need to sleep for a while...
+	//  3) and we are not waiting for a sequence to arrive
+	currentKeyword = -1; 
+	while ((timeSeqIndex < timeSeqLength) && (timeSeqIndex != SEQ_INDEX_WAITINGFORREPLY) && (-1 == llListFindList([keywordDelay, keywordRand, keywordStop], [currentKeyword])))
+	{
+		seqItem = llParseString2List(llList2String(timeSequence, timeSeqIndex), ["|"], []);
+		currentKeyword = llList2Integer(seqItem, Define_SequenceKeyword);
+		ActionKeyword(currentKeyword);
+		if ((timeSeqIndex != SEQ_INDEX_WAITINGFORREPLY) && (-1 == llListFindList([keywordDelay, keywordRand], [currentKeyword])))       // Can't increment on delay or rand - it's not done till it's time has expired
+			++timeSeqIndex;
+	}
+	
+	// Stop means go get a wait sequence...
+	if ((keywordStop == currentKeyword) || (timeSeqIndex >= timeSeqLength))
+	{
+		SendFreestyleSequence();
+
+		if (useDefaultDuration)
+		{
+			// But stop/end of sequence for default duration means to go to the next selected dance
+			//  as the duration of the current dance was shorter than the overall duration - so just
+			//  go to the next dance.
+			MessageUISelectNextDance();
+			return;
+		}
+
+		MessageGetWait(Define_DANCECONTROLLINKID);
+	}
+}
+
+default
+{
+	state_entry()
+	{
+	}
+
+	// This script is controlled completely by linked messages - everything comes in and goes out with a linked message
+	link_message(integer sender_num, integer num, string str, key id)
+	{
+		integer i2;
+
+		// Optimize for dropping messages very quickly - so not a lot of lag during useless message handling
+		//  think of this as an optimized get out of here quickly check.
+		if (-1 == llListFindList([Define_DANCECONTROLLINKID, 0], [num]))
+		{
+			return;	// Not our message - poof - go away quickly
+		}
+
+		if (num == Define_DANCECONTROLLINKID)
+		{
+			// Handle each of the different commands to this dance controller - we do the most likely ones first...
+			tmpList = llParseString2List(str, ["|"], []);
+			i2 = llListFindList(["SEQUENCE","DEFERRED","WAITSEQ"], [llList2String(tmpList,0)]);	// Get back the select option which indicates if this is a deferred dance or not...
+			if (-1 != i2)
+			{
+				if ((SelectOptionNone == i2) || (SelectOptionWaitseq == i2) || (!deferredStarted && (SelectOptionDeferred == i2)))
+				{
+					if (rememberFlag)
+						if (llGetListLength(remembered) > 0)
+						{
+							danceElapsedTime +=  llGetAndResetTime();
+	
+							// Put the delay into the freestyle sequence
+							tmpStr = llDumpList2String([keywordDelay,(integer)(danceElapsedTime*10.0)],"|");
+							remembered = AppendStringToList(remembered, tmpStr);
+						}
+
+					danceSequenceFlag = TRUE;
+					if (SelectOptionWaitseq == i2)
+					{
+						SendFreestyleSequence();
+						danceSequenceFlag = FALSE;
+					}
+
+					seqName = llList2String(tmpList, 1);
+					danceFromMenu = llList2Integer(tmpList, 2);	// Sequence name is item 1, menu link # is item 2
+					timeSequence = llParseString2List((string)id, ["|||"], []);
+					danceStopsOthers = DanceFlagStopOtherAnimations;
+					timeSeqLength = llGetListLength(timeSequence);
+					timeSeqIndex = 0;
+					lastSyncPoint = 0;
+					giveFromSequence = [];
+					deferredStarted = llList2Integer([FALSE, TRUE], i2);	// And remember if we started a deferred sequence or not...
+// llOwnerSay("Started a new sequence - deferred flag:"+(string)deferredStarted);
+				}
+				else
+				{
+					// Ok - we got a second (or Nth) deferred request - which means we just append to the end
+					//  of the time sequence (every part is already time sequenced). There is a lil bit of special
+					//  because we need to get the sequence highlighted - so we use the ZZZDefer keyword which takes
+					//  two parameters - the name of the sequence and the menu linkid (need both for the highlight)
+					// Then - when this entry is played in the sequence - we will simply send the 'starting dance'
+					//  message for this sequence. The sequence name will match on that menu and get highlighted.
+					timeSequence = AppendStringToList(timeSequence, llDumpList2String([keywordZZZDefer,llList2String(tmpList,1),llList2Integer(tmpList,2)],"|"));
+					timeSequence = AppendListToList(timeSequence, llParseString2List((string)id, ["|||"],[]));
+					timeSeqLength = llGetListLength(timeSequence);
+					OwnerSay("DCMSG012", [llList2String(tmpList,1)]);
+// llOwnerSay("Appending '"+llList2String(tmpList,1)+"' to the time sequence");
+				}
+
+				MessageStartedSequence(seqName, danceFromMenu);
+
+				LoopThroughSequence();
+				return;
+			}
+
+			i2 = (integer) str;	// Most commands are integers so they parse faster
+
+			if (DanceControlStop == i2)
+			{
+				// Stop any ongoing dancing - we do this by stopping the timer and telling ALL dancers to stop dancing
+				llSetTimerEvent(0.0);
+
+				if (rememberFlag)
+				{
+					if (currentKeyword == keywordDelay)
+					{
+						danceElapsedTime +=  llGetAndResetTime();
+
+						// Put the delay into the freestyle sequence
+						tmpStr = llDumpList2String([keywordDelay,(integer)(danceElapsedTime*10.0)],"|");
+						remembered = AppendStringToList(remembered, tmpStr);
+					}
+					SendFreestyleSequence();
+
+					remembered = [];
+					rememberFlag = FALSE;
+					rememberMenu = 0;
+					MessageSetRecordingSequences(rememberFlag);
+					OwnerSay("DCMSG002", []);
+				}
+
+				// The STOP command tells us that ALL dances have to be stopped - so stop them all...
+				MessageStopGroupDancing(Define_GroupAllBits, DancerFlagStopAllDances);
+
+				// Then release each and every dancer (if we need to)	
+				if ((integer) ((string)id))
+					MessageDCReleaseAllDancers();
+				
+				return;
+			}
+
+			if (DanceControlLastDanceStartForDancer == i2)
+			{
+					// List order is linkid, avname, avkey, channel #, animation, autoInviteFlag - most came to us
+					//  So we take off the link id and append the last animation string that we started with
+				tmpList = llParseString2List((string) id, ["|"], []);
+				i2 = llList2Integer(tmpList,0);
+				tmpList = DeleteListEntry(tmpList, 0);
+				tmpList = AppendIntegerToList(tmpList, lastAnimStarted);
+				MessageAddToDanceGroup(i2, tmpList);
+				return;
+			}
+
+			// Send an IM to all of the dancers
+			if (DanceControlIM == i2)
+			{
+				MessageSendGroupIM(id);
+				return;
+			}
+
+			// Sync commands are easy - we just take the last sync point we were at, remember to
+			//  stop all other dances and just start the sequence again at our sync point.
+			if (i2 == DanceControlSyncDancers)
+			{
+				Trace("link_message:0",(string)lastSyncPoint)
+				Debug_DanceControl("Sync received for sync point:"+(string)lastSyncPoint);
+
+				if (rememberFlag && (currentKeyword == keywordDelay))
+				{
+					danceElapsedTime +=  llGetAndResetTime();
+
+					// Put the delay into the freestyle sequence
+					tmpStr = llDumpList2String([keywordDelay,(integer)(danceElapsedTime*10.0)],"|");
+					remembered = AppendStringToList(remembered, tmpStr);
+				}
+
+				danceStopsOthers = DanceFlagSyncAnimations;
+				timeSeqIndex = lastSyncPoint;
+				LoopThroughSequence();
+				return;
+			}
+
+			if (DanceControlAccurateTimer == i2)
+			{
+				accurateTimer = (integer)((string) id);
+				Trace("link_message:1",(string)accurateTimer)
+				return;
+			}
+
+			if (DanceControlStartRecording == i2)
+			{
+				remembered = [];
+				list p = llParseString2List((string)id,["|"],[]);
+				if (llList2Integer(p,1))
+				{
+					rememberFlag = TRUE;
+					rememberMenu = llList2Integer(p,0);
+					OwnerSay("DCMSG001", [(rememberMenu-MenuBaseNumber)]);
+				}
+				else
+				{
+					rememberFlag = FALSE;
+					rememberMenu = 0;
+					OwnerSay("DCMSG002", []);
+				}
+				return;
+			}
+			
+			if (DanceControlMissingAnimWarning == i2)
+			{
+				warnMissingAnim = (integer)((string) id);
+				warnMissingAnim = warnMissingAnim ^ TRUE;	// Invert the setting as param 0==show errors on dance, 1==show errors during load (sigh)
+				return;
+			} 
+			
+			if (DanceControlDisableRepeat == i2)
+			{
+				disableRepeat = (integer)((string) id);	// 0 = [repeat] works,  1 = [repeat] disabled
+				return;
+			}
+
+			if (DanceControlSetDurationFlag == i2)
+			{
+				useDefaultDuration = (integer)((string) id);
+				return;
+			}
+			if (DanceControlSetDurationValue == i2)
+			{
+				defaultDanceDuration = (integer)((string) id);
+				return;
+			}
+		}	// End if for DanceControl only
+
+		if ((num == 0) && ("RESET" == str))
+		{
+			llResetScript();
+		}
+	}
+
+	timer()
+	{
+		llSetTimerEvent(0.0);	// Stop the next timer event (we already delayed for the delay keyword) - do this first! In lslplus time is fast and a timer can get a timer...
+
+		float currentTime = llGetAndResetTime();
+		float offset;
+		++timeSeqIndex;		// Delay has expired - so on to the next item in the dance sequence
+
+
+		danceElapsedTime += currentTime;	// Remember how long it's been so far
+
+		if (accurateTimer)
+		{
+			// Ok - we woke up a little early (as the time event was set a little short of the desired delay)
+			// So now we need to wait for just a little while here spinning the cpu... not great - but this
+			// allows us to have very accurate timing for delays. We only do up to 100 changes on the delay
+			// so that we know that we can NOT loop forevery here - if the timer doesn't change for some reason
+			// we could have gotten stuck here for a LONG time - like forever. So - don't believe the timer
+			// could do that - but if it did, now we limit the number of loops to 100 so that we can continue.
+			float timeleft = delayValue - currentTime;
+			integer count = 0;
+			offset = timeleft;
+			while( (timeleft > 0.01) && (count<100) )
+			{
+				timeleft -= llGetAndResetTime();
+				count++;
+			}
+			
+			if (offset > 0.01)
+				danceElapsedTime += offset;
+
+			if ((offset < 0.0) || (offset > 0.1))
+				shortenDelayBy = shortenDelayBy - offset + 0.005;	// Vary the adjustment by a little bit
+		}
+		
+		Trace("timer:1","DelayCompleted")
+
+		// Put the delay into the freestyle sequence
+		if (rememberFlag)
+		{
+			tmpStr = llDumpList2String([keywordDelay,(integer)(danceElapsedTime*10.0)], "|");
+			remembered = AppendStringToList(remembered, tmpStr);
+		}
+
+		// If we have a default dance delay that we have to honor... then check the total
+		//  duratation and if we are at or over time - it's time for the next 'other' dance.
+		if (useDefaultDuration)
+		{
+			if (danceElapsedTime > (float) defaultDanceDuration)
+			{
+				// Message to select next dance goes here... send to the UI for the current menu to do the work
+				// (we don't know the current menu, or what to select... so let someone else decide)
+				// we will just continue until the next sequence starts up...
+				MessageUISelectNextDance();
+				return;
+			}
+		}
+
+		// Ok - we are on time now - get doing the next set of items on the sequence... wheeeeeeeeeeee....
+		LoopThroughSequence();
+	}
+}

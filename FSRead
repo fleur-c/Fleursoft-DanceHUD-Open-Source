@@ -1,0 +1,911 @@
+// ReadNotecard - Reads a notecard - parses the dance sequence and generates errors (optionally)
+//
+// This is about as compact as I know how to make it...
+//
+// One of the things that drove me nuts is that other HUDs will whine only when dancing.
+// This is a really dumb time to whine that dance animations are missing. But the users
+// were so used to this odd behaviour that I had to add an option so that loading will
+// NOT have errors and dancing will whine. I toggle this all the time because I like
+// getting errors that make sense while loading a notecard.
+//
+// The parsing routine is also called from the chat REMEMBER command. Same parsing just
+// we don't read a line from a notecard. Handy for tweaking a sequence and trying it out
+// right away without editing the notecard in the HUD (which can take minutes).
+
+#include "GlobalDefinitions"
+#include "Read.h"
+#include "Lists.h"
+#include "MenuList.h"
+#include "Read.h"
+#include "Debug"
+#define KEYWORD_TABLE
+#include "Keywords"
+#include "Utility"
+#include "UtilOwnerSay"
+
+// Define some pretty global variables:
+
+integer loadingNotecard=FALSE;	// Flag to prevent multiple loads at the same time...
+string notecard = "";			// Configuration notecard name to read
+key readLineId = NULL_KEY;		// ID for reading from the notecard
+integer line = 0;				// Which line # are we reading from?
+integer menuNumber = 1;			// Which menu # are we sending sequences to?
+integer sequenceCount = 0;		// How many sequences have we loaded from this notecard?
+integer unnamedCount = 0;		// How many dances have NOT had any names at all (i.e. no NAME or DANCE keywords at all)
+integer sequenceDances = 0;		// How many dances were in the sequence so far?
+integer resetSequence = TRUE;	// Does the current line get continued to the next line? (tokens are NOT continued)
+list sequence = [];				// Sequence as we parse...
+list missingDances = [];		// What dances are not in the dance hud when we check for them?
+string sequenceName = "";		// What is the current sequence name?
+integer previousWasADance = FALSE;	// Flag for if the previous token was a dance animation from inside the HUD inventory
+list menuStyles = [];			// What are the styles of each of the menus? Each menu can have one style assigned to it
+list loops = [];				// List of open loop keywords (acts like a stack, each END keyword removes an entry) - eventually
+								//  What do we add to loops: <loop keyword>|token #|# dances parsed so far  - so that on end of a loop we know how many dances count
+integer loopsInGroup = 0;		// How many loop tokens did we have inside a group?
+integer warnMissingAnims = FALSE;	// Tell the user if we failed to find the animation in the inventory
+integer keepBlankLines = FALSE;	// Some folks like blank lines to seperate things in their menus - so keep them if they like them
+integer keepCommentLines = FALSE;	// Some folks even like to have their own comments on the menu - so give them the ability
+integer rememberSeq = FALSE;	// Are we remembering the sequence from a chat command?
+
+
+// Transient global variables...
+integer keyword;
+list params;
+string s;
+
+Initialize()
+{
+	// Clear the aliases and group style names - we keep them across all notecards loaded
+	Define_GroupAliases = [];
+	for (line = 0; line < llGetListLength(Define_GroupBits); line++)
+		Define_GroupAliases = AppendStringToList(Define_GroupAliases, "|");	// Default undefined user group aliases
+	for (line = 0; line < Define_MaxMenuNumber; line++)
+		menuStyles = AppendStringToList(menuStyles, "|");	// Default undefined menu style names
+}
+
+SaveKeyword(integer keywordType, string parameters)
+{
+	// When we have a dance - we ALWAYS follow it with a duration - the duration may be the default
+	//  of 5 minutes.... but there is a duration - check if the previous keyword was a dance and if
+	//  the current keyword is NOT a dance, then insert a delay of the default duration.
+	if (previousWasADance && (keywordType != keywordDelay))
+		sequence = AppendStringToList(sequence, (string)keywordDelay+"|"+(string)Define_DefaultNoDelayAfterDance);
+	
+	// Most of the keywords have parameters - three do not - end, stop, repeat - so append the sequence with the
+	//  the keyword number and parameters (or not).
+	if (-1 == llListFindList([keywordEnd, keywordStop, keywordRepeat], [keywordType]))
+		sequence = AppendStringToList(sequence, (string)keywordType+"|"+parameters);
+	else
+		sequence = AppendStringToList(sequence, (string)keywordType);
+
+	// Cover two cases of setting the sequence name
+	// 1) Any time we see a [NAME] keyword - we set the name - no matter where in the sequence - first,last,who cares...
+	// 2) If we get a dance animation name and the sequence name was not set, then set the sequence to the animation name	
+	if ((keywordName == keywordType) || ((sequenceName == "") && (keywordDance == keywordType)))
+		sequenceName = parameters;
+
+	if (keywordType == keywordDance)
+		sequenceDances++;
+
+	previousWasADance = (keywordType == keywordDance);
+}
+
+
+// Ok - we are checking out loop starts - return a TRUE to remember this loop starting...
+integer CheckStartOfLoop(string token)
+{
+	integer i;
+	list loopInfo;
+
+	// Simple integrity checking - what do we allow?
+	//  1) A loop can NOT contain a group or a loop (or series of them)
+	//  2) A group CAN contain a loop - but NOT a group
+	
+	// If there are no loops at all - then any loop is a good one
+	if (llGetListLength(loops) == 0)
+	{
+		// Started something - so just push it into the loops list...
+		s = (string)keyword+"|"+(string)(llGetListLength(sequence)-1)+"|"+(string)sequenceDances;
+		loops = AppendStringToList(loops, s);
+		return TRUE;
+	}
+	
+	// Get the previous loop info
+	loopInfo = llParseString2List(llList2String(loops,0),["|"],[]);
+	i = llList2Integer(loopInfo,0);
+
+	// For groups - we just check that a group didn't start inside another group
+	if (keyword == keywordGroup)
+	{
+		if (i == keywordGroup)
+		{
+			OwnerSay("NCMSG021", [line, token]);
+			return FALSE;
+		}
+		// Yahoo! There is a loop (mix,loop,random) inside of a group) - this is a fine thing...
+	}
+	else
+	{
+		// Anything that isn't a group is a loop - so check to make sure that the previous 'loop' wasn't already a loop...
+		if (-1 != llListFindList([keywordLoop, keywordMix, keywordRandom], [i]))
+		{
+			OwnerSay("NCMSG020", [line, token]);
+			return FALSE;
+		}
+
+		// Now we know that the previous 'loop' was a group keyword.
+		// We only allow one loop within a group (to share attributes between the groups when choices are made)
+		if (loopsInGroup >= 1)
+		{
+			OwnerSay("NCMSG022", [line, token]);
+			return FALSE;
+		}
+
+		// We have a pretty loop starting inside this group - so bump the loop (mix,random,loop) counter
+		loopsInGroup++;
+	}
+
+	// Started something - so just push it into the loops list...
+	s = (string)keyword+"|"+(string)(llGetListLength(sequence)-1)+"|"+(string)sequenceDances;
+	loops = AppendStringToList(loops, s);
+
+	return TRUE;
+}
+
+
+// We've got an 'END' token - check what we are ending and make sure it makes sense
+//
+// Currently we only have ONE loop allowed - so this is a bit easier
+//
+// The loops list contains this sequence of tokens (for loop and group keywords):
+//     keywordID | index of loop start input sequences | # dances at start of loop
+integer CheckEndOfLoops(string token)
+{
+	// Limit checks for various looping controls:
+	// Random and mix doesn't care how many there are, but there should be at least
+	//  two or it's not very random (warn the user)
+	list loopStart;
+	integer i;
+	integer j;
+	integer loopRepeatCount;
+	integer loopsLen = llGetListLength(loops);
+
+	Debug_Notecard("Working on end of loop checking")
+	
+	// Check that there was at least one loop
+	if (loopsLen == 0)
+	{
+		OwnerSay("NCMSG028", [(string)line, token]);
+		return FALSE;
+	}
+	
+	// Anything from here on down is considered a warning - we have to allow the [END] to do something...
+
+	// Ok - we have an end and there was some flavor of loop.
+	// We are either ending a loop (random,mix,loop) or a group - which is it?
+	loopStart = llParseString2List(llList2String(loops, -1), ["|"], []);
+	i = llList2Integer(loopStart,0);
+	if (i == keywordGroup)
+	{
+		// Ending a group - this is pretty easy
+		// We don't actually have any hard work to do - just reset the loop counter within a group to zero as the group has ended
+		// We could check things like if there are ANY dances between the group/end - but we don't as there could simply
+		//  be IM command or anything other than dances - and that's perfectly ok to do (weird, but ok)
+		loopsInGroup = 0;
+	}
+	else
+	{
+		// Ending a loop - this can be kind of fun
+		//
+		// For LOOP keywords we have nothing in particular to check - they want to loop nothing - that's fine with us.
+		// Anything else is RANDOM and MIX - so check them...
+		if (i != keywordLoop)
+		{
+			// For RANDOM and MIX keywords we check that the number of dances inside the loop is at least as
+			// large as the random/mix and tell the user if it isn't - this is more of a warning instead of an error.
+			s = llList2String(keywordTable, i);	// Get the keyword that started the loop
+			i = llList2Integer(loopStart,2);	// Get the # of dances at the start of the loop
+			j = llList2Integer(loopStart,1);	// Get the # of the entry that started the loop
+			
+			loopRepeatCount = llList2Integer(llParseString2List(llList2String(sequence, j),["|"],[]),1);	// Get the repeat count from the random/mix keyword in the  sequence
+			if (loopRepeatCount > (sequenceDances - i))
+			{
+				Debug_Notecard("Mix/random is longer than # of dances in mix/random - so decreasing. The sequence # we are fixing is:"+(string)j)
+				OwnerSay("NCMSG029", [(string)line, token, s, loopRepeatCount, (sequenceDances - i)]);
+				loopStart = llParseString2List(llList2String(sequence, j), ["|"],[]);
+				loopStart = ReplaceListEntry(loopStart, [ sequenceDances - i], 1);
+				s = llDumpList2String(loopStart, "|");
+				sequence = ReplaceListEntry(sequence, [s], j);
+			}
+		}
+	}
+		
+	// We only can have two items on the loops list - we want to drop the last one
+	// The shortcut is to look at the length and from that we know to either save the first
+	// entry OR to simply clear the list.
+	//
+	// Note: THIS IS ALL ABOUT OPTIMIZING THE LIST MANAGEMENT! If we ever allow more than one
+	//  loop per group - then this will have to change right here.... FIXME?
+	if (loopsLen > 1)
+		loops = [ llList2String(loops,0) ];
+	else
+		loops = [];
+
+	return TRUE;
+}
+
+// Validate and execute the special keywords - like menu and such
+integer ValidateKeywordParams(string token)
+{
+	integer i;
+	integer j;
+
+	Debug_Notecard("Validating keyword = "+(string)keyword+"  and parameters of:"+llDumpList2String(params,","))
+
+	// Dance keyword is all about checking that the dance exists
+	if (keyword == keywordDance)
+	{
+		s = llList2String(params,0);
+		if (warnMissingAnims && (INVENTORY_ANIMATION != llGetInventoryType(s)))
+		{
+			// Hmm - the item isn't a dance - let's remember it (if we've never seen it before) for later
+			if (llListFindList(missingDances, [s]) == -1)
+				// Nope - brand new thing that isn't a dance - add to our little list of missing dances
+				missingDances = AppendStringToList(missingDances, s);
+
+				if (llGetListLength(missingDances) >= 100)
+				{
+					missingDances = SortList(missingDances, 1, TRUE);
+					OwnerSay("NCMSG032", [(string)llGetListLength(missingDances)]);
+					OwnerSay("NCMSG005b", [ llDumpList2String(missingDances, ",") ]);
+					missingDances = [];
+				}
+
+			OwnerSay("NCMSG014", [line, token, s]);
+			return TRUE;		// Remember it as a dance... weird but this makes sequences be exactly what gets loaded...
+		}
+		return TRUE;
+	}
+
+	// The [MENU #] keyword is special - causes dance sequences to be sent to that menu #
+	//  Remember the menu # of where to send this (and future) dance sequences (while reading this notecard)
+	//  Also set the menu name of the menu - we get the parameter by just taking it from the params string :-)
+	// People like numbers to start at 1 and go up... so menu numbers are 1 to Max#
+	if (keyword == keywordMenu)
+	{
+		menuNumber = llList2Integer(params,0);
+		MessageSetMenuName(Define_MENULISTLINKID + menuNumber, llList2String(params,1));
+		return TRUE;
+	}
+
+	// The [ALIAS string]string is special - causes a grouping name to have an additional alias
+	//  to be setup - this basically means that the group of female could be called Purple and [group]purple would work.
+	// Note: We reserved the first name 'all' for ourselves and it can't be aliased.
+	if (keyword == keywordAlias)
+	{
+		s = llList2String(params,0);
+		i = llListFindList(Define_GroupNames, [ s ]);
+		if (i < 1)	// Either it was a group name that we don't know (-1) or the ALL group which will NOT take an alias at all
+		{
+			OwnerSay(llList2String(["NCMSG012","NCMSG25"], i+1), [line, token]);
+			return FALSE;							
+		}
+		params += [ i ];
+
+		i = llList2Integer(params,1)-1;	// Index of alias name
+		s = llList2String(params,2);	// New group alias
+		Define_GroupAliases = ReplaceListEntry(Define_GroupAliases, [s], i);
+		return TRUE;
+	}
+	
+	if (keyword == keywordGroup)
+	{
+		string s2 = llList2String(params,0);
+		if (-1 == llListFindList(["SAME","DIFFERENT"], [ s2 ] ))
+		{
+			OwnerSay("NCMSG011", [line, token]);
+			return FALSE;
+		}
+		s = llStringTrim(llGetSubString(token, llSubStringIndex(token, llList2String(params,1)), -1), STRING_TRIM);
+		i = llListFindList(Define_GroupNames, [ llToUpper(s) ]);
+		if (i == -1)
+		{
+			// Not one of the default group names - check the user list of groups...
+			i = llListFindList(Define_GroupAliases, [ llToUpper(s) ]);
+			if (i == -1)
+			{
+				OwnerSay("NCMSG016", [line, token, s ]);
+				return FALSE;
+			}
+		}
+		// For [group] - define the parameters correctly - the Prepare routine expects groups to be in this order:
+		//    SAME|DIFFERENT   groupBit    originalGroupString    definedGroupString
+		params = [s2, llList2Integer(Define_GroupBits, i), s, llList2String(Define_GroupNames, i)];
+		loopsInGroup = 0;
+		return TRUE;
+	}
+
+	// Check the parameters of the loop
+	if (keyword == keywordLoop)
+	{
+		// Need to have at least a loop of 2 or more - 1 or less don't make any sense
+		i = llList2Integer(params, 0);
+		if (i < 2)
+		{
+			OwnerSay("NCMSG023", [(string)line, token, i]);
+			return FALSE;
+		}
+		
+		// On the upper edge - we check for a max of 10 and anything beyond 10 will be rejected
+		if (i > Define_MaxLoops)
+		{
+			OwnerSay("NCMSG024", [(string)line, token, i, Define_MaxLoops]);
+			return FALSE;
+		}
+		return TRUE;
+	}
+
+	// Handle [menustyle] - remember the new menu style for the menu # specified...
+	//  Since we never show the user the menu styles (in the UI) we can convert it to upper case for our list of styles.
+	if (keyword == keywordMenuStyle)
+	{
+		// Check for our optional menu # - we just parse the params string which should be MENUSTYLE|##|StyleName
+		i = llList2Integer(params, 0);
+		s = llToUpper(llList2String(params,1));
+		j = llListFindList(menuStyles, [ s ]);
+		if ((j != -1) && (j != (i-1)))
+		{
+			// MenuStyle was already set on some other menu # - reset the other menu and keep going...
+			menuStyles = ReplaceListEntry(menuStyles, [ "|" ], j);
+		}
+		menuStyles = ReplaceListEntry(menuStyles, [ s ], i-1);
+		return TRUE;
+	}
+
+	if (keyword == keywordDialog)
+	{
+		i = llGetListLength(llParseString2List(llList2String(params,0), [","], []));
+		if (i < 3)
+		{
+			// Not enough parameters for a [dialog]
+			OwnerSay("NCMSG015", [line, token]);
+			return FALSE;
+		}
+		return TRUE;
+	}
+	
+	// Handle [style] - this is all about looking up dance styles and putting the
+	//  sequence on a menu for the user - self organizing dances
+	// We have two different organization aspects - I think both are important
+	//  1) Check the menu styles list - if we find a match, then put this
+	//     sequence on that menu (easy, the user specified it and we're happy to do it)
+	//  2) When it isn't found, check the list and if there is an opening, put the style
+	//     on the list and then put the dance on that menu - tell the user we did this
+	//  3) When we can't find a menu style that matches - we use the current menu.
+	//     (and we tell the user about it too)
+	if (keyword == keywordStyle)
+	{
+		s = llToUpper(llList2String(params,0));
+		i = llListFindList(menuStyles, [s]);
+		if (i != -1)
+			// Found this style on a menu already - yahoo! Set the menu number and keep on going...
+			menuNumber = i + 1;	// Menu #'s start at 1, our lists start at 0.
+		else
+		{
+			i = llListFindList(menuStyles, ["|"]);
+			if (i != -1)
+			{
+				// Found an available menu for this style...
+				menuStyles = ReplaceListEntry(menuStyles, [s], i);
+				menuNumber = i + 1;
+				OwnerSay("NCMSG027", [line, menuNumber, s]);
+			}
+			else
+				// Couldn't find either the menu style OR an available menu to set the style...
+				OwnerSay("NCMSG030", [line, token, menuNumber, s]);
+		}
+		return TRUE;
+	}
+
+	// Not a keyword that needs extra actions/validation...
+	return TRUE;
+}
+
+// Process a token - really find it's parameters with a minimal effort to make sure the parameters are valid
+// We call the validate routine after we figure out the parameters for checking keywords that need extra
+// effort (do something, need to be validated, etc). The intent is to try to seperate figuring out the
+// parameters from the validating them. The most common validations are done here - but most are not.
+integer processToken(string input)
+{
+	list outer;
+	list inner;
+	integer options;
+	integer i;
+	integer j;
+	float f;
+	string token;
+	
+	Debug_Notecard("Processing something that feels like a keyword:"+input)
+
+
+	// First thing we do is check if this is an animations from the inventory - if it is, then this is a dance
+	//  and the name happens to start with a '[' character - interesting, not what I would expect. But possible.
+	if (INVENTORY_ANIMATION == llGetInventoryType(input))
+	{
+		SaveKeyword(keywordDance, input);
+		Debug_Notecard("  Found a dance:"+input)
+		return TRUE;
+	}
+
+	
+	// Translation [NAME]phred will work... so will [[[[NAME[[[[[]]Phred... I dislike it - but (sigh)
+	//  I'd rather an error - BUT since we can ignore the error - why whine to the user?
+	outer = llParseString2List(input, ["[","]"],[]);
+	inner = llParseString2List(llStringTrim(llList2String(outer, 0), STRING_TRIM), [" ",",",":"],[]);
+	token = llStringTrim(llList2String(inner, 0), STRING_TRIM);
+	keyword = llListFindList(keywordTable, [llToUpper(token)]);
+	if (keyword == -1)
+	{
+		OwnerSay("NCMSG007", [line, input]);
+		return FALSE;
+	}
+
+	// There are keywords that are NOT user keywords (ZZZDefer for example) - that we DO NOT
+	//  ever parse from the input file - check for this option and if it is set, then we claim
+	//  that we failed to find this keyword.
+	options = llList2Integer(optionsTable,keyword);
+	if (options & keySkipParse) {
+		OwnerSay("NCMSG007", [line, input]);
+		return FALSE;
+	}
+	
+	Debug_Notecard("Options for our keyword are:"+(string)options)
+	
+	// Handle the options of the inner parameters - some are dependent on each other - integers may also have allownegativeint (or not)
+	// There are three kinds of inner parameters - integer, float and special string - all exclusive of the other
+	i = llGetListLength(inner);
+	params = [];
+	if (options & keyInteger)
+	{
+		// Do we have a user specified parameter?
+		if (i > 1)
+		{
+			// Yeps - verify it is a number in the range we expect
+			j = (integer) llStringTrim(llList2String(inner,1),STRING_TRIM);
+			if ((j < 0) && (!(options & keyAllowNegativeInt)))
+			{
+				OwnerSay("NCMSG008", [line, input]);
+				return FALSE;
+			}
+			if ((j == 0) && (-1 == llListFindList(["0","1","2","3","4","5","6","7","8","9"],[llGetSubString(llStringTrim(llList2String(inner,1),STRING_TRIM),0,0)])))
+			{
+				OwnerSay("NCMSG009", [line, input]);
+				return FALSE;			
+			}
+			// Special validation for menu # items
+			if ((options & keyMenuNumber) && ((j < 1) || (j > Define_MaxMenuNumber)))
+			{
+				// Menu # is outside the range of 1 to MaxMenuNumber - skipping this keyword
+				OwnerSay("NCMSG026", [line, input, j, Define_MaxMenuNumber]);
+				return FALSE;
+			}
+		}
+		else
+			// Nopes - get the default based on the keyword
+			// Note: This list is in the SAME order as the keywords! FIXME? - modify this WHEN KEYWORDS CHANGE!
+			j = llList2Integer([0,0,0,0,0,0,0,0,2,menuNumber,menuNumber,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0], keyword);
+
+		params = [j];
+	}
+	if (options & keyFloat)
+	{
+		// Support for delay and random
+		f = (float) llStringTrim(llList2String(inner,1),STRING_TRIM);
+		if (f < 0.1)
+		{
+			OwnerSay("NCMSG010", [line, input]);
+			return FALSE;
+		}
+		if ((f == 0.0) && (-1 == llListFindList(["0","1","2","3","4","5","6","7","8","9"],[llGetSubString(llStringTrim(llList2String(inner,1),STRING_TRIM),0,0)])))
+		{
+			OwnerSay("NCMSG010", [line, input]);
+			return FALSE;			
+		}
+		params = [(integer)(f * 10.0)];
+		if ((i > 2) && (options & keyTwoFloats))
+		{
+			f = (float) llStringTrim(llList2String(inner,2),STRING_TRIM);
+			if (f < 0.1)
+			{
+				OwnerSay("NCMSG010", [line, input]);
+				return FALSE;
+			}
+			if ((f == 0.0) && (-1 == llListFindList(["0","1","2","3","4","5","6","7","8","9"],[llGetSubString(llStringTrim(llList2String(inner,2),STRING_TRIM),0,0)])))
+			{
+				OwnerSay("NCMSG010", [line, input]);
+				return FALSE;			
+			}
+			params += [(integer)(f * 10.0)];
+		}
+	}
+	if (options & keySpecialString)
+	{
+		// Support for group and alias - inner parameter is a string
+		if (keyword == keywordGroup)
+		{
+			if (i > 1)
+				params = [ llToUpper(llStringTrim(llList2String(inner,1),STRING_TRIM)) ];
+			else
+				params = [ "SAME" ];	// Default for group
+		}
+		if (keyword == keywordAlias)
+		{
+			if (i > 1)
+				params = [ llToUpper(llStringTrim(llList2String(inner,1),STRING_TRIM)) ];
+			else
+			{
+				OwnerSay("NCMSG013", [line, input]);
+				return FALSE;
+			}
+		}
+	}
+	// Now we process the outer parameter (if any is required)
+	if (options & keyString)
+	{
+		s = llStringTrim(llList2String(outer,1),STRING_TRIM);
+		if (llGetListLength(outer) > 1)
+			params += [ s ];
+		else
+		{
+			// There are no default outer parameters - so they get an error for their troubles...
+			s = llList2String(keywordTable,keyword);
+			OwnerSay("NCMSG018", [line, input, s]);
+			return FALSE;
+		}
+	}
+
+	// Check the other parameters to see if they make sense and do any other processing we need to for them...
+	if (!ValidateKeywordParams(input))
+		return FALSE;
+
+	// Ok - we have inner and outer parameters parsed and ready to go along with the keyword
+	SaveKeyword(keyword, llDumpList2String(params,"|"));
+
+	// Handle anything that we need to do for loops/groups
+	if (options & keyLoopStarts)
+		if (!CheckStartOfLoop(input))
+			sequence = DeleteListEntry(sequence, -1);
+	if (options & keyLoopEnds)
+		if (!CheckEndOfLoops(input))
+			sequence = DeleteListEntry(sequence, -1);
+
+	i = FALSE;
+	if (options & keyLastToken)
+		i = TRUE;
+	return i;
+}
+
+// Process a line - takes in any sequence line and breaks the line into tokens and calls out for
+//  processing for each token
+processLine(string data)
+{
+	integer i;
+	string token;
+	list tokens = [];
+	integer j;
+	integer dataLen = llStringLength(data);
+	integer numberTokens;
+	integer lineCompleted = FALSE;
+
+	tokens = llParseStringKeepNulls(data, ["|"], []);
+	data = "";
+	numberTokens = llGetListLength(tokens);
+	for (i = 0; (i < numberTokens) && (!lineCompleted); i++)
+	{
+		token = llStringTrim(llList2String(tokens, i), STRING_TRIM);
+		if (token != "")	// Skip zero length tokens (so  [name]fred | | | | | | dance1 | 30 - is the same as [name]fred|dance1|30)
+		{
+			if (llGetSubString(token,0,0) != "[")
+			{
+				// We have something that is either a dance animation name (inventory) or a delay value
+				if (INVENTORY_ANIMATION == llGetInventoryType(token))
+				{
+					SaveKeyword(keywordDance, token);
+					Debug_Notecard("  Found a dance:"+token)
+				}
+				else
+				{
+					// Ok - we're down to it's got to be a delay - which is a floating point number
+					// Convert to a float and check for zero - which indicates we do NOT have a delay
+					j = (integer) (((float)token)*10.0);
+					if (j != 0)
+					{
+						Debug_Notecard("   Found delay of "+(string)j)
+						if (j < 0)
+							OwnerSay("NCMSG008", [line, token]);
+						else
+							SaveKeyword(keywordDelay, (string)j);
+					}
+					else
+					{
+						// Ok - either we have a negative delay value or zero OR a dance animations we failed to find.
+						// We are going to declare it a dance animation we could not find.
+						Debug_Notecard("   Dance name '"+token+"' NOT found in inventory and not a delay...")
+
+						// Remember the token as a dance animation - we may not know about it, but this will let
+						//  the sequence be completely loaded. Dancing it will get animation errors.
+						SaveKeyword(keywordDance, token);
+
+						// Hmm - the item isn't a dance - let's remember it (if we've never seen it before) for later
+						if (warnMissingAnims && (llListFindList(missingDances, [token]) == -1))
+						{
+							// Nope - brand new thing that isn't a dance - add to our little list of missing dances
+							missingDances = AppendStringToList(missingDances, token);
+							if (llGetListLength(missingDances) >= 100)
+							{
+								missingDances = SortList(missingDances, 1, TRUE);
+								OwnerSay("NCMSG032", [(string)llGetListLength(missingDances)]);
+								OwnerSay("NCMSG005b", [ llDumpList2String(missingDances, ",") ]);
+								missingDances = [];
+							}
+						}
+
+				 	 	// If we are on the last token of this line, and this is a LONG line - we happened
+				 		//  to NOT find a dance that matches - then we'll tell the user about it.
+						if ((i == (numberTokens-1)) && (dataLen == 255))
+							OwnerSay("NCMSG006", [(string)line, token]);
+					}
+				}
+			}
+			else
+				// We have a special token - time to parse it into pieces - token name, inner parameters and outer parameters
+				lineCompleted = processToken(token);
+
+		Debug_Notecard("End of loop and line completed is:"+(string)lineCompleted)
+		}	// End if we have a token of non-zero length
+	}	// End for each token
+
+	if (lineCompleted && (i < numberTokens))
+		OwnerSay("NCMSG019", [line, token]);
+
+
+	// We've reached the end of all the tokens for this sequence, are we on a line that was continued?
+	if (resetSequence)
+	{
+		// At the end of the sequence - so do whatever we need to do here...
+		// Check to make sure that any sequence that ends with a dance also has a default duration after it.
+		if (previousWasADance)
+			SaveKeyword(keywordDelay, (string)Define_DefaultNoDelayAfterDance);
+
+		// Check for end of loops/groups and do something about them...
+		j = llGetListLength(loops);
+		if (j > 0)
+		{
+			// We have at least one, if not two loops (group, group/loop or loop) to end and the user didn't
+			// Let's just inject enought [END] keywords to finish the sequence nicely
+			for (i=0; i<j; i++)
+				processToken("[END]");
+		}
+		
+		// We only remember sequences that have something on them
+		i = llGetListLength(sequence);
+		if (i > 0)
+		{
+			if (sequenceName == "")
+				sequenceName = "Sequence "+(string)(++unnamedCount);
+
+			// Check for a sequence that has a dance and a default delay and add a repeat after them
+			//  This means that any sequence of just a dance animation name will last forever and restart
+			//  ever (default delay) seconds.
+			if (2 == i)
+			{
+				tokens = llParseString2List(llList2String(sequence, 0), ["|"], []);
+				if (llList2Integer(tokens,0) == keywordDance)
+				{
+					tokens = llParseString2List(llList2String(sequence, 1), ["|"], []);
+					if ((llList2Integer(tokens,0) == keywordDelay) && (llList2Integer(tokens,1) == Define_DefaultNoDelayAfterDance))
+						sequence = AppendIntegerToList(sequence, keywordRepeat);
+				}
+			}
+			MessageAddSequence(Define_MENULISTLINKID+menuNumber, sequenceName, llDumpList2String(sequence,"|||"));
+			if (rememberSeq)
+				MessageGoToMenu((Define_MENULISTLINKID+menuNumber));		// Back to the user menu which should have the new sequence on it :-)		
+			++sequenceCount;
+		}
+		else
+		{
+			if (keepBlankLines)
+				MessageAddBlankLine(Define_MENULISTLINKID+menuNumber);
+		}
+	}
+}
+
+default
+{
+	state_entry()
+	{
+		Initialize();
+	}
+
+	link_message(integer sender_num, integer num, string str, key id)
+	{
+		if ((num == 0) && (str == "RESET"))
+			llResetScript();
+
+		if (Define_READNOTECARDLINKID == num)
+		{
+			list msg;
+			msg = llParseString2List(str, ["|"], []);
+			if (llToUpper(llList2String(msg, 0)) == "LOAD")
+			{
+				menuNumber = llList2Integer(msg, 2) - Define_MENULISTLINKID;	// We get a linkid #
+				rememberSeq = FALSE;
+
+				if (loadingNotecard)
+					OwnerSay("NCMSG001", [notecard, llList2String(msg, 1)]);
+				else
+				{
+					notecard = llList2String(msg, 1);
+					if (llGetInventoryType(notecard) == INVENTORY_NOTECARD)
+					{
+						if (llGetSubString(notecard,0,2) == "~FS")
+						{
+							OwnerSay("NCMSG033", [notecard]);
+							return;
+						}
+						loadingNotecard = TRUE;
+						OwnerSay("NCMSG002", [notecard, menuNumber]);
+						
+						// Start reading a dance sequence
+						sequenceCount = 0;
+						resetSequence = TRUE;
+						line = 0;
+						readLineId = llGetNotecardLine(notecard, line);
+					}
+					else
+						OwnerSay("NCMSG003", [notecard]);
+				}
+				return;
+			}
+
+			// Let the user type a 'remember <sequence>' kind of command and parse it the same as from a notecard - NO CONTINUATIONS!
+			if (llToUpper(llList2String(msg, 0)) == "REMEMBER")
+			{
+				if (loadingNotecard)
+					OwnerSay("NCMSG001", [notecard, llList2String(msg, 1)]);
+				else
+				{				
+					sequenceName = "";
+					sequence = [];
+					sequenceDances = 0;
+					previousWasADance = FALSE;
+					sequenceCount = 0;
+					resetSequence = TRUE;
+					notecard = "";
+					menuNumber = llList2Integer(msg, 1) - Define_MENULISTLINKID;
+					rememberSeq = TRUE;
+					processLine(id);
+				}
+				return;
+			}
+
+			if (llToUpper(llList2String(msg, 0)) == "REDIRECT")
+			{
+				menuNumber = llList2Integer(msg, 1) - Define_MENULISTLINKID;
+				return;
+			}
+
+			// Handle the three administrative settings
+			if (llToUpper(llList2String(msg, 0)) == "MISSING")
+			{
+				warnMissingAnims = llList2Integer(msg, 1);
+				return;
+			}
+			if (llToUpper(llList2String(msg, 0)) == "BLANK")
+			{
+				keepBlankLines = llList2Integer(msg, 1);
+				return;
+			}
+			if (llToUpper(llList2String(msg, 0)) == "COMMENT")
+			{
+				keepCommentLines = llList2Integer(msg, 1);
+				return;
+			}
+
+			// If we were asked what the group aliases are, just send them back a pretty list...
+			if (llToUpper(llList2String(msg, 0)) == "ALIASES")
+			{
+				keyword = (integer)((string)id);
+				s =  llDumpList2String(Define_GroupAliases, ",");
+				MessageSendGroupAliases(keyword, s);
+				s = "";
+				return;
+			}
+		}	// End if message sent to this script by id
+	}
+
+	dataserver(key request_id, string data)
+	{
+		if (request_id == readLineId)
+		{
+			if (data != EOF)
+			{
+				// Increment the line number - computers like to start counting at zero (which is where
+				//  we started reading the notecard), but humans like to count starting at one.
+				//  Since we could generate warning messages for this line number - lets bump the
+				//  line number up by one now (so we'll be ready to read the next line in the notecard).
+				++line;
+				
+				// Give the user periodic updates that we are doing something
+				if ((line % 50) == 0)
+				{
+					OwnerSay("NCMSG031", [ line ]);
+				}
+
+				// The plan is very easy - skip any blank lines and comments
+				if (data != "")
+				{
+					if (llGetSubString(data,0,0) != "#")
+					{
+						Debug_Notecard("Processing line "+(string)line+": "+data)
+						if (resetSequence)
+						{
+							sequenceName = "";
+							sequence = [];
+							sequenceDances = 0;
+							previousWasADance = FALSE;
+						}
+						resetSequence = TRUE;
+						if (llGetSubString(data,-1,-1)=="\\")
+						{
+						    resetSequence = FALSE;
+						    data = llGetSubString(data,0,-2);
+						}
+	
+						processLine(data);
+					}
+					else
+					{
+						if (keepCommentLines && (llStringLength(data) > 1))
+							MessageAddComment(Define_MENULISTLINKID+menuNumber, llGetSubString(data,1,-1));
+					}
+				}
+				else
+				{
+					if (keepBlankLines)
+							MessageAddBlankLine(Define_MENULISTLINKID+menuNumber);
+				}
+		
+				// Ok - all set - read the next line from the notecard...
+				readLineId = llGetNotecardLine(notecard, line);
+				return;
+			}
+		
+			// Hit the end of the notecard - so print pretty things...
+			//
+			// Show the list of dances that we could NOT find in inventory...
+			if (llGetListLength(missingDances) > 0)
+			{
+				missingDances = SortList(missingDances, 1, TRUE);
+				OwnerSay("NCMSG005", [(string)llGetListLength(missingDances)]);
+				OwnerSay("NCMSG005b", [ llDumpList2String(missingDances, ",") ]);
+			}	// End if we had some missing dances
+		
+			OwnerSay("NCMSG004", [notecard, (string)sequenceCount]);
+
+			// Tell the GUI we've finished loading...
+			MessageNotecardLoaded(notecard);
+
+			// Send the list of aliases to the Dancers for display later (seperator of ',' - as there are '|' strings in there...)
+			// Note: Dancers get this because they are responsible for showing the group aliases
+			// We send to all of the dancer scripts in one shot - good to have multicast broadcast type messages.
+			// This message will get all of the dancers aliases (for running scripts) so that changes to the aliases will be correct.
+			// The 'add dancer' askes us for the list of aliases - so that stopped dancers will get the correct aliases also.
+			s =  llDumpList2String(Define_GroupAliases, ",");
+			MessageSendGroupAliases(Define_DANCEGROUPS+Define_GroupAllBits, s);
+			s = "";
+			
+			loadingNotecard = FALSE;
+		}
+	}
+}

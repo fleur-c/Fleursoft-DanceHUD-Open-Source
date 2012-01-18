@@ -1,0 +1,62 @@
+#ifndef DEBUG
+#define DEBUG
+// Debug module
+//
+// This module is ALL about constantss so that the code can be optimized
+//  away when the debug flag of a component is off...
+//
+//  To get a set of debug messages in a special place, just define a new
+//  debug flag and routine to print debug messages.
+
+// Start of user configured settings...
+
+#undef NOTECARD_DEBUG_FLAG
+	// Debug handling of reading of the notecard
+#undef MAINSCRIPT_DEBUG_FLAG
+	// Mainscript debugging flags
+#undef MENULIST_DEBUG_FLAG
+	// MenuList debugging flag
+#undef DANCER_DEBUG_FLAG
+// #define DANCER_DEBUG_FLAG 1
+	// DanceController debugging
+#undef DANCECONTROL_DEBUG_FLAG
+// #define DANCECONTROL_DEBUG_FLAG 1
+	// DanceController debugging
+	
+// End of user configured settings...
+
+// Simple print debug messages - if the flag is set - print something
+#ifdef NOTECARD_DEBUG_FLAG
+#define Debug_Notecard(msg) llOwnerSay("Notecard:"+msg);
+#else
+#define Debug_Notecard(msg)
+#endif
+
+#ifdef MAINSCRIPT_DEBUG_FLAG
+#define Debug_MainScript(msg) llOwnerSay("Main:"+msg)
+#else
+#define Debug_MainScript(msg)
+#endif
+
+
+#ifdef MENULIST_DEBUG_FLAG
+#define Debug_MenuList(msg) llOwnerSay("MenuList:"+msg)
+#else
+#define Debug_MenuList(msg)
+#endif
+
+
+#ifdef DANCER_DEBUG_FLAG
+#define Debug_Dancer(msg) llOwnerSay("Dancer "); llOwnerSay msg
+#else
+#define Debug_Dancer(msg)
+#endif
+
+
+#ifdef DANCECONTROL_DEBUG_FLAG
+#define Debug_DanceControl(msg) llOwnerSay("DanceControl:"+msg)
+#else
+#define Debug_DanceControl(msg)
+#endif
+
+#endif

@@ -1,0 +1,216 @@
+#!/usr/bin/perl
+#
+# This script cleans up what lslplus generated that is strange. Things that come out
+# are NOT able to be used in 3rd rock - because the parser is stricter there.
+# (sigh) - It's probably a good idea to clean these up anyways and then test them
+# all in SL too this way - cleans up expressions nicely I think.
+#
+# What are the things we clean up?
+# 0) Trim the lines so there is no whitespace at the start of the line
+#    It's pretty - but wastes space and we don't really need it. Whack!
+# 1) Assignments which are wrapped with an extra ().
+#        ^(something = something else);$  -> something = something else;
+# 2) if statements with extra ()'s around the conditional
+#        ^if ((something)) {...  ->  if (something) {....
+# 2b) nested if - up to 3 deep... with extra ()'s around the conditional
+#        ^if ((something)) if...  ->  if (something) if...
+# 3) if statements with extra ()'s around the conditional AND the expression after
+#        ^if ((something)) (something2);...  ->  if (something) something2;
+# 4) Statements on ends of if's that are wrapped with extra ()'s
+#        if (something) ((something else));
+# 4b) Function calls on end of if's that are wrapped with extra ()'s
+#        if ((something)) Function((parm)); -> if (something) Function(parm);
+# 4c) Function calls on end of if's that are wrapped with extra ()'s
+#        if ((something)) Function(parm); -> if (something) Function(parm);
+# 4d) Function calls on end of if's that are wrapped with extra ()'s
+#        if (something) Function((parm)); -> if (something) Function(parm);
+# 4e) Return on end of if's that are wrapped with extra ()'s
+#        if ((something)) return; -> if (something) return; (treat return as function)
+# 5) else statements with extra ()'s
+#        else (something); ->  else something;
+# 6) Post/pre-increment/decrement wrapped in ()'s
+#        (++something); -> ++something;
+# 7) For statements with wrapped expressions for block start
+#        for ((i=0); (something); (i++)) {  -> for (i=0; (something); i++) {
+# 7b) For statements (without increment) with wrapped expressions for block start
+#        for ((i=0); (something); ) {  -> for (i=0; (something); ) {
+# 7c) For statements (without assignment) with wrapped expressions for block start
+#        for (; (something); (i++)) {  -> for (; (something); i++) {
+# 8) For statements with wrapped expressions for statement
+#        for ((i=0); (something); (i++)) (another);  -> for (i=0; (something); i++) another;
+# 9) while statements with extra ()'s
+#        while ((something)) { -> while (something) {
+#		 while ((something)) (something2); -> while (something) something2;
+#        while ((something)); -> while (something);
+# 10) Function call with extra ()'s
+#		 function((something));
+# 11) llEmail - specifically we have too manu ()'s all around it - so clean it up based
+#        on exactly what is being generated.
+#
+# If we just use regular expressions - maybe we can do this without a lot of hassle
+#
+# I also do NOT like the comment from lslplus on my generated code. So we change that
+# here too
+
+while ($line = <STDIN>)
+{
+	chomp($line);
+
+	# 0 - Drop leading white space
+	while ($line =~ /^ |^\t/)
+	{
+		$line =~ s/^ |^\t//;
+	}
+
+
+	# 1 - look for wrapped statements that can drop a ()'s
+	if ($line =~ /^\(.*\);$/)
+	{
+		$line =~ s/^\((.*)\);$/\1;/;
+	}
+
+
+	# 2 - look for wrapped if statements that can drop a ()'s
+	if ($line =~ /^if \(\(.*\)\) {/)
+	{
+		$line =~ s/^if \(\((.*)\)\) {/if \(\1\) {/;
+	}
+
+	# 2b - look for nested if statements that can drop a ()'s
+	#  Three deep
+	if ($line =~ /^if \(\(.*\)\) if \(\(.*\)\) if \(\(.*\)\) .*/)
+	{
+		$line =~ s/^if \(\((.*)\)\) if \(\((.*)\)\) if \(\((.*)\)\) (.*)/if (\1) if (\2) if (\3) \4/;
+	}
+	#  Two deep next
+	if ($line =~ /^if \(\(.*\)\) if \(\(.*\)\) .*/)
+	{
+		$line =~ s/^if \(\((.*)\)\) if \(\((.*)\)\) (.*$)/if \(\1\) if \(\2) \3/;
+	}
+
+
+	# 3 - look for wrapped if statements + statement that can drop two ()'s
+	if ($line =~ /^if \(\(.*\)\) \(.*\);/)
+	{
+		$line =~ s/^if \(\((.*)\)\) \((.*)\);/if \(\1\) \2;/;
+	}
+
+	# 4 - look for if statements (statement);
+	if ($line =~ /^if \(.*\) \(.*\);/)
+	{
+		$line =~ s/^if \((.*)\) \((.*)\);/if \(\1\) \2;/;
+	}
+	# 4a - look for if ((statements( ))) function();
+	if ($line =~ /^if \(\(.*\(.*\)\)\) [a-zA-Z]*\(.*\);/)
+	{
+		$line =~ s/^if \(\((.*)\((.*)\)\)\) ([a-zA-Z]*)\((.*)\);/if \(\1\(\2\)\) \3\(\4\);/;
+	}
+	else
+	{
+		# 4b - look for if statements function();
+		if ($line =~ /^if \(\(.*\)\) [a-zA-Z]*\(\(.*\)\);/)
+		{
+			$line =~ s/^if \(\((.*)\)\) ([a-zA-Z]*)\(\((.*)\)\);/if \(\1\) \2\(\3\);/;
+		}
+		# 4c - look for if statements function();
+		if ($line =~ /^if \(\(.*\)\) [a-zA-Z][a-zA-Z0-9]*\(.*\);/)
+		{
+			$line =~ s/^if \(\((.*)\)\) ([a-zA-Z][a-zA-Z0-9]*)\((.*)\);/if \(\1\) \2\(\3\);/;
+		}
+		# 4d - look for if statements function();
+		if ($line =~ /^if \(.*\) [a-zA-Z][a-zA-Z0-9]*\(\(.*\)\);/)
+		{
+			$line =~ s/^if \((.*)\) ([a-zA-Z][a-zA-Z0-9]*)\(\((.*)\)\);/if \(\1\) \2\(\3\);/;
+		}
+		# 4e - look for if statements return;
+		if ($line =~ /^if \(\(.*\)\) [a-zA-Z][a-zA-Z0-9]*\;$/)
+		{
+			$line =~ s/^if \(\((.*)\)\) ([a-zA-Z][a-zA-Z\s0-9]*)\;$/if \(\1\) \2;/;
+		}
+	}
+
+	# 5 - else statements with ();'s after them
+	if ($line =~ /^else  \(.*\);$/)
+	{
+		$line =~ s/^else  \((.*)\);/else \1;/;
+	}
+
+
+	# 6 - Pre/post-increment/decrement wrapped in ()'s statement
+	if ($line =~ /^(\+\+|\-\-).*\);$/)
+	{
+		$line =~ s/^(\+\+|\-\-)(.*)\);$/\1\2;/
+	}
+	if ($line =~ /^\(.*(\+\+|\-\-)\);$/)
+	{
+		$line =~ s/^\((.*)(\+\+|\-\-)\);$/\1\2;/
+	}
+
+
+	# 7 - look for for statements {
+	if ($line =~ /^for \(\(.*\); \(.*\); \(.*\)\) \{/)
+	{
+		$line =~ s/^for \(\((.*)\)\; \((.*)\)\; \((.*)\)\) \{$/for \(\1; \2; \3\) \{/;
+	}
+
+	# 7b - look for for statements without increment {
+	if ($line =~ /^for \(\(.*\); \(.*\); \) \{/)
+	{
+		$line =~ s/^for \(\((.*)\)\; \((.*)\)\; \) \{$/for \(\1; \2; \) \{/;
+	}
+
+	# 7c - look for for statements without assignment {
+	if ($line =~ /^for \(\; \(.*\); \(.*\)\) \{/)
+	{
+		$line =~ s/^for \(\; \((.*)\)\; \((.*)\)\) \{$/for \(; \1; \2\) \{/;
+	}
+
+	# 8 - look for for statements (something);
+	if ($line =~ /^for \(\(.*\); \(.*\); \(.*\)\) \(.*\);$/)
+	{
+		$line =~ s/^for \(\((.*)\)\; \((.*)\)\; \((.*)\)\) \((.*)\);$/for \(\1; \2; \3\) \4;/;
+	}
+
+	# 9 - look for while ((something)) {
+	if ($line =~ /^while \(\(.*\)\) {$/)
+	{
+		$line =~ s/^while \(\((.*)\)\) {$/while \(\1\) {/;
+	}
+	if ($line =~ /^while \(\(.*\)\) \(.*\);$/)
+	{
+		$line =~ s/^while \(\((.*)\)\) \((.*)\);$/while \(\1\) \2;/;
+	}
+	if ($line =~ /^while \(\(.*\)\);$/)
+	{
+		$line =~ s/^while \(\((.*)\)\);$/while \(\1\);/;
+	}
+
+	# 10 - look for function();
+	if ($line =~ /^[a-zA-Z][a-zA-Z0-9]*\(\(.*\)\);$/)
+	{
+		$line =~ s/([a-zA-Z][a-zA-Z0-9]*)\(\((.*)\)\);/\1\(\2\);/;
+	}
+
+	# 11 - llEmail - just fix it - a function cleanup got to it before us... so... clean it up better yet...
+	if ($line =~ /^llEmail\(.*\);$/)
+	{
+		$line =~ s/^llEmail\((.*)"\)(.*)\);/llEmail\(\1"\2\)\);/;
+    }
+
+	# N - Fix up the first line which is the only one with a comment at all...
+	if ($line =~ /^\/\//)
+	{
+		$today = localtime;
+		$file = $line;
+		$file =~ s/^.*generated: (.*)\.lslp.*$/\1/;
+		$line = "// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/) - $file - generated $today";
+
+		print "//XEngine:lsl\n";	# OpenSim likes to be told what to use...
+	}
+
+	# If we have a line left - print it...
+	if ($line ne "")
+	{
+		print "$line\n";
+	}
+}

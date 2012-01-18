@@ -1,0 +1,96 @@
+NCMSG001 Busy loading notecard '&1' - can't load dance sequence notecard '&2' until I complete loading notecard '&1' (Msg:N1)
+NCMSG002 Loading dance sequence notecard '&1' starting on menu &2...
+NCMSG003 Dance sequence notecard '&1' not found in DanceHUD inventory (Msg:N2)
+NCMSG004 Completed loading dance sequence notecard '&1' - found &2 dance sequences.
+NCMSG005 &1 dance animations were not found: (Msg:N3)
+NCMSG005b    &1
+NCMSG006 Line &1 is 255 characters long and was truncated - the last item on the line was '&2' which doesn't appear to be a dance animation (Msg:N4)
+NCMSG007 Line &1 has a keyword '&2' that I don't understand - skipping keyword (Msg:N5)
+NCMSG008 Line &1 keyword '&2' expected a positive integer and we didn't find it - skipping keyword (Msg:N6)
+NCMSG009 Line &1 keyword '&2' expected an integer and we didn't find it - skipping keyword (Msg:N7)
+NCMSG010 Line &1 keyword '&2' expected a delay value of 0.1 or greater and didn't find it - skipping keyword (Msg:N8)
+NCMSG011 Line &1 keyword '&2' expected group inner parameter of SAME or DIFFERENT - skipping keyword (Msg:N9)
+NCMSG012 Line &1 keyword '&2' attempted to alias an unknown group name '&3' - skipping keyword (Msg:N10)
+NCMSG013 Line &1 keyword '&2' does not have a group name - skipping keyword (Msg:N11)
+NCMSG014 Line &1 keyword '&2' dance animation name '&3' not found in inventory (Msg:N12)
+NCMSG015 Line &1 keyword '&2' does not have enough parameters - skipping keyword (Msg:N13)
+NCMSG016 Line &1 keyword '&2' unknown group name '&3' - skipping keyword (Msg:N14)
+NCMSG018 Line &1 keyword '&2' expected an inner parameter (like: [KEYWORD something]) and didn't find it - skipping keyword (Msg:N15)
+NCMSG019 Line &1 keyword '&2' causes sequence to end - skipping rest of this dance sequence (Msg:N16)
+NCMSG020 Line &1 keyword '&2' can't start a looping keyword ([LOOP], [MIX] or [RANDOM]) inside of another looping keyword - skipping keyword (Msg:N17)
+NCMSG021 Line &1 keyword '&2' can't start a group inside another group - skipping keyword (Msg:N18)
+NCMSG022 Line &1 keyword '&2' attempted to start a second LOOP, MIX or RANDOM within a GROUP - skipping keyword (Msg:N19)
+NCMSG023 Line &1 keyword '&2' loop of &3 times is too few loops (minimum loops is 2) - skipping keyword (Msg:N20)
+NCMSG024 Line &1 keyword '&2' loop of &3 times is too many loops (maximum loops is &4) - skipping keyword (Msg:N21)
+NCMSG026 Line &1 keyword '&2' attempted to use menu number &3 which is not in the range of 1 to &4 - skipping keyword (Msg:N22)
+NCMSG027 Menu &1 set to style &2
+NCMSG028 Line &1 keyword '&2' attemped to end a loop ([LOOP], [MIX] or [RANDOM]) or a group ([GROUP]) but none had been started - skipping keyword (Msg:N23)
+NCMSG029 Line &1 keyword '&2' ended a [&3 &4], but there were only &5 dance animations between the [&3] and &2 - changing &3 to be [&3 &5] (Msg:N24)
+NCMSG030 Line &1 keyword '&2 &4' failed to find an available menu - using menu number &3 (Msg:N25)
+NCMSG031 Processed &1 lines from the notecard...
+NCMSG032 &1 dance animations were not found (still loading the notecard...) (Msg:N3)
+NCMSG033 Notecard '&1' is from Fleursoft (starts with '~FS') and is not a dance sequence notecard or an AO configuration notecard - not loading it.
+DMSG001 Danced '&1' for &2 seconds.
+DMSG002 '&1' refused the dance request. (Msg:D1)
+DMSG003 '&1' did not click to dance with us - timed out the request after &2 seconds. (Msg:D2)
+DMSG004 '&1' stopped dancing with us.
+DMSG005 Added dancer '&1'
+DMSG006 Incorrectly named script '&1' - removing it. (Msg:D3)
+DMSG007 Hmm - there does not seem to be anyone within &1 meters. (Msg:D4)
+DMSG008 '&1' is not in this region - removing them. (Msg:D5)
+DMSG009 I think that '&1' may have an AO on - there are &2 active animations.
+IM001 Welcome to our dancing group - glad you could dance with us.
+IM002 To stop dancing, type: '/&1stop'
+IM003 Reminder: You may want to turn off your AO.
+DCMSG001 Starting recording of freestyle dance animation sequences to menu &1...
+DCMSG002 Stopped recording of freestyle dance sequences...
+DCMSG003 Released dancer '&1'
+DCMSG004 All active dance controller scripts (&1 of them) are being used. I can't add another dancer now. You could increase the number of active dance controllers to &2. (Msg:C1)
+DCMSG005 All &1 dancer scripts are active. I can't add another dancer. (Msg:C2)
+DCMSG006 Everyone within &1 meters is already dancing with us.
+DCMSG007 Whoops - something happened and I could not find menu item '&1'.
+DCMSG008 Inviting '&1' to dance...
+DCMSG009 There are no dancers. I can't change any dancer groups without some dancers.
+DCMSG010 Starting copy of dances/durations from menu &1 to menu &2 - &3 sequences...
+DCMSG011 Completed copy of dances/durations.
+DCMSG012 Added '&1' to deferred list of dances
+DCMSG013 Script '&1' was removed while '&2' was dancing. (Msg:C3)
+DCMSG014 Cleared menu &1.
+DCMSG015 Running low on memory (&1 bytes free) - menu &2 can't remember any more sequences - sending sequence &3 to menu &4.
+DCMSG016 Very low on memory (&1 bytes free) - menu &2 - there are no other scripts to send the sequence to - so I have to forget sequence &3
+DCMSG017 Menu &1 is completely filled up with &2 dance sequences - sending sequence &3 to menu &4.
+DCMSG018 Menu &1 is completely filled up with &2 dance sequences - there are no other scripts to send the sequence to - so I have to forget sequence &3
+DCMSG019 Dance animation '&1' from dance sequence '&2' is not in inventory - using '&3' instead.
+DCMSG020 I can't find inventory item '&1' to give to all the dancers.
+DCMSG021 Inventory item '&1' is does not have copy and transfer set. I can't give it to all the dancers.
+DCMSG022 Added freestyle dance '&1' to menu &2
+DCMSG023 To change the default dance duration, you must type: /&1defaultduration ## or /&1dd  ## - replace ## with the number of seconds for the new default dance duration. For example: to set a 27 second default dance duration, type: /&1dd 27
+DCMSG024 Set the number of active dancer scripts to &1 out of &2 total dancer scripts.
+LMSG001 Failed to find dance sequence '&1' (Msg:L1)
+LMSG011 Dance sequence '&1' has a secondary group '&2' (&3 seconds) has a longer duration than the first group '&4' (&5 seconds). I forgot all dance sequence actions in group '&2' after the duration of the first group (Msg:L2)
+LMSG013 Dance sequence '&1' has a secondary group '&2' (&3 seconds) has a shorter duration than the first group '&4' (&5 seconds). Group '&2' will be stopped until after the duration of the first group (Msg:L3)
+CMSG001 Invalid function key number: '&1' - must be in range of 1 to &2
+CMSG002 Invalid menu choice '&1' - must be in range of 1 to &2, ADMIN, A, INVENTORY or I
+CMSG003 Invalid select choice '&1' - select (#) command must be a positive integer (1 or more)
+CMSG004 Chat channel set to: &1
+CMSG005 I won't set the chat channel to: &1 (feels like channel 0 to me and that is too busy)
+CMSG006 Unknown command: &1 &2
+CMSG007 Unknown mode: &1
+CMSG008 Deferred mode is now: &1
+CMSG009 Super stop mode - stopping everything
+CMSG010 I won't set the default dance duration to: &1 - default dance duration must not be lower than 1 or higher than &2
+CMSG011 Set default duration to &1 seconds 
+CMSG012 I can't load animations if there are no dancers - get into Dance mode with at least one dancer then try again
+CMSG013 There are zero animations in the '&1' - sorry, I can't load zero animations. Please add some animations to the '&1' and try again.
+CMSG014 Completed loading of &1 with &3 dancers in &4 seconds.
+CMSG015 Cancelled loading after &1 out of &2 animations with &3 dancers in &4 seconds.
+CMSG016 Starting to automatically inviting everyone within &1 meters to dance with us
+CMSG017 Stopped automatically inviting everyone
+MMSG001 Can't find dance sequence '&1' on menu '&2'
+MMSG002 Failed to find the default wait sequence named '&1' using built in animation '&2' (Msg:L4)
+MMSG003 There are no dance sequences on the current menu - can't select the next sequence automatically.
+MMSG005 There are no dance sequences on menu '&1' (Msg:L5)
+MMSG009 Can't copy dance names/times from menu &1 to menu &2. These are the same menu and we just can't do that.
+MMSG010 Can't recenter the '&1' when it is not attached - you may want to 'attach to HUD' the '&2' object in your inventory.
+WMSG001 There are no dance sequences on menu '&1'. We will use '&2' as a wait sequence.
+WMSG002 Set wait sequence menu to '&1'. There are &2 dance sequences on that menu.

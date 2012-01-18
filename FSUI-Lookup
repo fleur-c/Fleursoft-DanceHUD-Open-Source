@@ -1,0 +1,172 @@
+// User interface lookup routine - generate the prim #'s that we need in FSUI-small1
+
+#define TOP_BLANK_ARROWS_PRIM 4
+
+#include "Trace"
+#ifdef UNIT_TEST_TRACING
+#define MODULE "FSUILookup:"
+#endif
+#include "GlobalDefinitions"
+#include "Services.h"
+#include "Lists.h"
+#include "MenuList.h"
+#include "DanceControl.h"
+#include "Dancers.h"
+#include "Read.h"
+#include "Debug"
+#include "Keywords"
+#include "Utility"
+#include "UtilOwnerSay"
+
+
+
+// Current menu settings...
+integer activeMenuIndex = -1;		// Which menu # is active (prim index effectively)
+integer menuNumberOfEntries = 0;	// Total number of entries - (not all of which are known now)
+integer startingMenuItem = 0;		// Where are we relative to the menu top? (i.e. first menu # shown)
+integer menuLength = 0;				// # of entries on the menu at this time
+integer menuLinkId = 0;				// Where do we send the next menu request?  (for scroll, display, etc)
+list menuItems = [];				// Names of the menu items
+list menuParams = [];				// Parameters for each of the menu items
+list menuSequences = [];			// Sequence names (i.e. name without the '#<#> ' characters)
+string menuName = "";				// Name of the current menu
+list menuStartItem = [];			// Starting menu item for each user defined menu (menus 1-N)
+integer constrainedMenu = Define_FlagRangeConstrainedMenu;		// Is the menu constrained (to what is on the screen) or not?
+
+integer numberOfLines = Define_DefaultNumberLines;	// How many lines should a menu display?
+
+// Prim menu details
+list primMenuClicks = [];		// Which link # do we have for each of the menu click?
+list primMenuText  = [];		// Which link # do we set the menu text for each menu item? (off by one)
+list primScrollLinks = [];		// Which prims act as scroll links? (two of them do NOT have the buttons on them)
+integer primModeLink = 0;		// Which prim has the mode texture?
+integer primMenusLink = 0;		// Which prim has the menu numbers?
+integer primMenuNameLink = 0;	// Which prim do we set the hover text for the menu name?
+integer primMoreButtons = 0;	// Which prim has the extra buttons added starting in 1.1 (autoinvite on or off)
+vector primColorWhite = <1.0, 1.0, 1.0>;		// For use when we need white (for drawing textures correctly)
+vector primBackgroundColor = <0.0, 0.0, 0.0>;	// Background color of black as a default
+vector primTextColorNormal = <1.0, 1.0, 1.0>;	// We use white as hover text - think of this as normal color for text
+vector primTextColorHighlight = <0.0, 1.0, 0.0>;	// We use green for highlighted text
+float primBackgroundAlpha = 1.0;	// Alpha level for background
+float primTextColorAlpha = 1.0;		// Alpha level for text color
+float primTextColorHighlightAlpha = 1.0;	// Alpha level for highlight color
+float primBackAlphaLevel = 0.0;		// Alpha level for the back of the HUD (0=transparent, 1.0 is solid) - changes when we are rez'd
+integer primPrevMenuIndex = -1;	// Indicator for when we need to draw the new prim for a menu change (-1 to 11) -1 for non-drawn, 0-11 for menus (1-10+inventory+admin)
+
+// Define a couple of useful index values for the prim menu offsets (for when we need to change what is on the screen)
+#define ADMIN_MENU_INDEX 12
+#define NO_MENU_INDEX 0
+
+list menuLinkIdLookup = [];	// Link id's for menus that match the primMenuOffsets (none,1...10,inventory,admin)
+list otherAdminMenuLinkIds = [];	// Linkid's of ALL the admin menu items (secondary ones - load notecards and such)
+
+
+// Lookup the names of prims which is what we use to determine where to set hover text
+// (menu items) and where clicks land on prims. Much nicer than hard coded link #'s
+// and as a routine - we can reuse this if we change the size of the HUD by adding
+// or removing some prims.
+LookupPrimsInfo()
+{
+	integer numberPrims = llGetNumberOfPrims();
+	string linkName;
+	list names;
+	integer i = 0;
+	integer j;
+
+	// Reset the prim info... HUD size could have changed...
+	primMenuClicks = [];
+	primMenuText  = [];
+	primScrollLinks = [];
+	primModeLink = 0;
+	primMenusLink = 0;
+	primMenuNameLink = 0;
+
+	// Loop through all of the prims (skipping the root, prim # 1, 0=no line, 2=first child prim)
+	//  and look for any menu items and create an entry in two lists - one entry for each menu item
+	for (i=1; i<numberPrims; ++i)
+	{
+		linkName = llGetLinkName(i+1);
+		names = llParseString2List(linkName, [",",":"], []);
+		if (-1 != llListFindList(names, [ "MenuItem" ]))
+		{
+			// Got a menu item - add an entry to both lists, just a place holder for now
+			primMenuClicks = AppendIntegerToList(primMenuClicks,-1);
+			primMenuText = AppendIntegerToList(primMenuText,-1);
+		}
+	}
+	
+	// Second pass through the prims - we associate the menu items with the link numbers
+	// We are hoping to make sure that we got every menu item and menu text...
+	for (i=1; i<numberPrims; ++i)
+	{
+		linkName = llGetLinkName(i+1);
+		names = llParseString2List(linkName, [",",":"], []);
+		j = llListFindList(names, ["MenuItem"]);
+		if ( -1 != j )
+		{
+			j = llList2Integer(names, j+1);
+			primMenuClicks = llListReplaceList(primMenuClicks, [i+1], j-1, j-1);
+		}
+		j = llListFindList(names, ["MenuText"]);
+		if ( -1 != j )
+		{
+			j = llList2Integer(names, j+1);
+			primMenuText = llListReplaceList(primMenuText, [i+1], j-1, j-1);
+		}
+		if ( -1 != llListFindList(names, ["Scroll"]))
+			primScrollLinks = AppendIntegerToList(primScrollLinks,i+1);
+		if ( -1 != llListFindList(names, ["HScroll"]))
+			primScrollLinks = AppendIntegerToList(primScrollLinks,i+1);
+		if ( -1 != llListFindList(names, ["MenuName"]))
+			primMenuNameLink = i+1;
+		if ( -1 != llListFindList(names, ["Mode"]))
+			primModeLink = i+1;
+		if ( -1 != llListFindList(names, ["Numbers"]))
+			primMenusLink = i+1;
+		if ( -1 != llListFindList(names, ["Half"]))
+			primMoreButtons = i+1;
+	}
+
+	// Setup link id's for menus that match the primMenuOffsets (none,1...10,inventory,admin)
+	menuLinkIdLookup = [-1];
+	menuStartItem = [];
+	otherAdminMenuLinkIds = [];
+	for (i=0; i<Define_MaxMenuNumber; i++)
+	{
+		menuLinkIdLookup = AppendIntegerToList(menuLinkIdLookup, Define_MENULISTLINKID+i+1);
+		menuStartItem = AppendIntegerToList(menuStartItem, 0);	// Set all user menus to start at the top of the menu
+		otherAdminMenuLinkIds = AppendIntegerToList(otherAdminMenuLinkIds, Define_DANCERSLINKID+Define_DANCERCHANGEGROUPSOFFSET+i+1);
+	}
+	menuStartItem = AppendIntegerToList(menuStartItem, 0);	// Set the inventory start item at the top of the inventory
+	menuLinkIdLookup = AppendIntegerToList(menuLinkIdLookup, Define_INVENTORYANIMLINKID);
+	menuLinkIdLookup = AppendIntegerToList(menuLinkIdLookup, Define_ADMINLINKID);
+	otherAdminMenuLinkIds += ExtraAdminMenus;
+
+	// Generate some output that we use in the FSUI-Small1 script
+	llOwnerSay("/* START: The following constants were calculated by FSUI-Lookup and placed here as constants */");
+	llOwnerSay("/* If the constants change - we need to regenerate this set of lists */");
+	llOwnerSay("#define PRIMMENUCLICKS ["+llDumpList2String(primMenuClicks,",")+"]");
+	llOwnerSay("#define PRIMMENUCLICKSITEM5 "+llList2String(primMenuClicks,5));	// Get the 5th element - far enough down to be sure we get a consistent height for a prim
+	llOwnerSay("#define PRIMMENUTEXT ["+llDumpList2String(primMenuText,",")+"]");
+	llOwnerSay("#define PRIMSCROLLLINKS ["+llDumpList2String(primScrollLinks,",")+"]");
+	llOwnerSay("#define PRIMMENUNAMELINK "+(string)primMenuNameLink);
+	llOwnerSay("#define PRIMMODELINK "+(string)primModeLink);
+	llOwnerSay("#define PRIMMENUSLINK "+(string)primMenusLink);
+	llOwnerSay("#define PRIMMOREBUTTONS "+(string)primMoreButtons);
+	llOwnerSay("#define MENULINKIDLOOKUP ["+llDumpList2String(menuLinkIdLookup,",")+"]");
+	llOwnerSay("#define OTHERADMINMENULINKIDS ["+llDumpList2String(otherAdminMenuLinkIds,",")+"]");
+	llOwnerSay("#define NUMBEROFLINES Define_DefaultNumberLines");	// Get the # of menu items
+	
+	llOwnerSay("list menuStartItem = ["+llDumpList2String(menuStartItem,",")+"]");
+	llOwnerSay("/* END: The following constants were calculated by FSUI-Lookup and placed here as constants */");
+	
+}
+
+
+default
+{
+	state_entry()
+	{
+		LookupPrimsInfo();
+	}
+}

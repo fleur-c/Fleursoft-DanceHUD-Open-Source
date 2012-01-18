@@ -1,0 +1,855 @@
+// This script is responsible for managing the dancers - who is invited, dancing, not dancing
+//  - admin menu related (add dancer, remove dancer and even start of change dancer groups)
+//  - also the automatic invite for dancers - which 'may' work with the add dancer menu?
+
+#include "Trace"
+#ifdef UNIT_TEST_TRACING
+#define MODULE "FSDanceControl"
+#endif
+#include "GlobalDefinitions"
+#include "DanceControl.h"
+#include "Dancers.h"
+#include "Dancer.h"
+#include "Lists.h"
+#include "MenuList.h"
+#include "Chat.h"
+#include "Services.h"
+#include "Debug"
+#include "Keywords"
+#include "Utility"
+#include "UtilOwnerSay"
+
+
+list dancers = [];					// Which dancers do we have? (names of dancers)
+list dancerKeys = [];				// Keys of each dancer that is active (handy when attempting to check for if the owner is dancing or not)
+list dancersLinks = [];				// Link id to the controller for each dancer - in the same order as the dancers
+list controllersAvailable = [];		// Which controllers are available? (value = link id's, not on list when not used)
+integer controllersEnabled = 0;		// Number of controllers available for dancers
+list controllerScripts = [];		// Names of all of dance controller scripts
+list controllersLinkIds = [];		// List of all of the dance controller script link ids
+list giveFromSequence = [];			// List of all the places in the sequence where we gave something away to the dancers
+list refusedDance = [];				// List of av's that we've invited and they said no (part of auto invite) - we remember the last 100
+									//  on a new start of autoinvite - we clear this list.
+
+integer ownerChatChannel = Define_DefaultChannel;	// Remember the owner chat channel - it's the basis for the dancers chat channels...
+
+// For adding avatars - we need to remember names and keys from radar...
+list nearbyAVs = [];                            // Names of nearby avatars (from radar)
+list nearbyAVsKeys = [];                        // Keys of nearby avatars (from radar)
+
+integer autoInvite = FALSE;			// By default we do NOT automatically invite more dancers...
+
+string tmpStr = "";
+list tmpList = [];
+integer i = 0;
+integer j = 0;
+integer k = 0;
+float t;
+
+SetScriptState(string s, integer flag)
+{
+#ifndef UNIT_TEST_DANCECONTROL
+	llSetScriptState(s, flag);
+#else
+	llOwnerSay("Set script state to:"+(string)flag);
+#endif
+}
+
+
+DoSetActiveDancers()
+{
+	integer ctlLinkId;
+
+	// Activate the first N dance controller scripts
+	// We know that the current dancers are already active - so just loop through the available
+	// list and enable those
+	k = llGetListLength(controllersAvailable);
+	for (i=0; i<k; ++i)
+	{
+		j = llListFindList(controllersLinkIds, [llList2Integer(controllersAvailable, i)]);
+		tmpStr = llList2String(controllerScripts, j);
+		if (!llGetScriptState(tmpStr))
+			SetScriptState(tmpStr, TRUE);
+	}
+	
+	// Ok - now we need to turn off all scripts except for the current dancers AND
+	//  the available controllers we just started above.
+	k = llGetListLength(controllersLinkIds);
+	for (i=0; i<k; ++i)
+	{
+		ctlLinkId = llList2Integer(controllersLinkIds, i);
+		if ((-1 == llListFindList(dancersLinks, [ctlLinkId])) && (-1 == llListFindList(controllersAvailable, [ctlLinkId])))
+		{
+			tmpStr = llList2String(controllerScripts, i);
+			if (llGetScriptState(tmpStr))
+				SetScriptState(tmpStr, FALSE);
+		}
+	}
+}
+
+integer GetDanceController()
+{
+	if (llGetListLength(controllersAvailable) > 0)
+	{
+		i = llList2Integer(controllersAvailable, 0);
+		controllersAvailable = DeleteListEntry(controllersAvailable, 0);
+		return i;
+	}
+
+	if (!autoInvite)
+	{
+		if (controllersEnabled < llGetListLength(controllersLinkIds))
+			OwnerSay("DCMSG004", [ controllersEnabled, llGetListLength(controllersLinkIds) ]);
+		else
+			OwnerSay("DCMSG005", [ llGetListLength(controllersLinkIds) ] );
+	}
+	return -1;
+}
+
+ChangeActiveControllers(integer numberOfScripts)
+{
+	integer ctlIndex;
+	integer newLinkId;
+
+	// If there isn't a change - no reason to even think about it...
+	if (numberOfScripts == controllersEnabled)
+		return;
+
+	// Are we adding more dance controllers or taking away some?
+	if (numberOfScripts < controllersEnabled)
+	{
+		// Taking away - easy peasy - how many are we taking away - take them from the available list
+		// There has to be some as we would not allow the change to happen when there are NOT available dance controllers
+		j = controllersEnabled - numberOfScripts;
+		for (i = 0; i<j ;i++)
+			controllersAvailable = DeleteListEntry(controllersAvailable, 0);
+	}
+	else
+	{
+		// Adding some new dance controllers - pretty easy peasy - how many are we adding?
+		//  We need to go down the list of all controller link ids - and if it isn't already on the
+		//  dancers or available list, then just put it onto the available list.
+		j = numberOfScripts - controllersEnabled;
+		ctlIndex = 0;
+		for (i = 0; i<j ;i++)
+		{
+			newLinkId = llList2Integer(controllersLinkIds, ctlIndex);
+			while ((-1 != llListFindList(dancersLinks, [newLinkId])) || (-1 != llListFindList(controllersAvailable, [newLinkId])))
+			{
+				ctlIndex++;
+				newLinkId = llList2Integer(controllersLinkIds, ctlIndex);
+			}
+			controllersAvailable = AppendIntegerToList(controllersAvailable, newLinkId);
+			ctlIndex++;
+		}
+	}
+	controllersEnabled = numberOfScripts;
+
+	// Activate the first N dance controller scripts
+	// We know that the current dancers are already active - so just loop through the available
+	// list and enable those
+	k = llGetListLength(controllersAvailable);
+	for (i=0; i<k; ++i)
+	{
+		j = llListFindList(controllersLinkIds, [llList2Integer(controllersAvailable, i)]);
+		tmpStr = llList2String(controllerScripts, j);
+		if (!llGetScriptState(tmpStr))
+			SetScriptState(tmpStr, TRUE);
+	}
+	
+	// Ok - now we need to turn off all scripts except for the current dancers AND
+	//  the available controllers we just started above.
+	k = llGetListLength(controllersLinkIds);
+	for (i=0; i<k; ++i)
+	{
+		j = llList2Integer(controllersLinkIds, i);
+		if ((-1 == llListFindList(dancersLinks, [j])) && (-1 == llListFindList(controllersAvailable, [j])))
+		{
+			tmpStr = llList2String(controllerScripts, i);
+			if (llGetScriptState(tmpStr))
+				SetScriptState(tmpStr, FALSE);
+		}
+	}
+	
+	Trace("ChangeActiveControllers",(string)controllersEnabled)
+	OwnerSay("DCMSG024", [controllersEnabled, llGetListLength(controllersLinkIds)]);
+}
+
+DoAddDancer(string avname, key avkey, integer controllerLinkid)
+{
+	if (controllerLinkid != -1)
+	{
+		// Check to make sure we do NOT add the same dancer twice by accident
+		if (-1 == llListFindList(dancers, [avname]))
+		{
+			dancers = AppendStringToList(dancers, avname);
+			dancerKeys = AppendStringToList(dancerKeys, avkey);
+			dancersLinks = AppendIntegerToList(dancersLinks, controllerLinkid);
+	
+			// Use the owners chat channel for all of the dancers (owner does NOT get another channel - we just don't listen in their dancer script)
+			MessageDCStartNewDancer(controllerLinkid, avname, avkey, ownerChatChannel, autoInvite);
+		}
+		else
+			// If we've already got the dancer on our list - just give back the controller and believe they are dancing.
+			controllersAvailable = InsertListToList(controllersAvailable, [controllerLinkid], 0);
+	}
+	return;
+}
+
+DoReleaseDancer(integer index, integer resetFlag)
+{
+	// We will allow the owner to be removed - low level - but it's never going to happen
+	//  from the upper levels of the HUD (it'd be dumb to do) - but useful for a unit test
+	if (index == -1)	// Unlikely to ever happen - but check anyways...
+	{
+		Trace("DoReleaseDancer",index)
+		return;
+	}
+
+	// Stop the dancing for this controller and return the controller to the available pool then remove the dancer from the dancer lists...
+	j = llList2Integer(dancersLinks, index);
+	
+	// Reset the specific dancer - IF we are told to reset them
+	if (resetFlag)
+		MessageResetSpecific(j);
+
+	controllersAvailable = InsertListToList(controllersAvailable, [j], 0);
+
+	if (autoInvite)
+	{
+		tmpStr = llList2String(dancerKeys, index);
+		refusedDance = AppendStringToList(refusedDance, tmpStr);
+		if (llGetListLength(refusedDance) > 50)
+		{
+			refusedDance = DeleteListEntry(refusedDance, 0);
+		}
+	}
+
+	tmpStr = llList2String(dancers,index);
+	dancers = DeleteListEntry(dancers, index);
+	dancerKeys = DeleteListEntry(dancerKeys, index);
+	dancersLinks = DeleteListEntry(dancersLinks, index);
+
+	OwnerSay("DCMSG003", [ tmpStr ]);
+	tmpStr = "";
+}
+
+
+// Handle the admin menu requests for getting a list of dancers who could be removed and then removing one of them
+#define ADD_DANCERS_MENU_NAME "Invite which dancer?"
+HandleAddDancer()
+{
+	integer cmd = llList2Integer(tmpList,0);
+	integer controllerLinkid = 0;
+	
+	if (cmd == MenuLite_GetMenuRange)
+	{
+		// Remember the parameters
+		nearbyAVs = tmpList;
+		tmpList = [];
+
+		// Scan for all AVs within X meters of me
+		llSensor("", NULL_KEY, AGENT, DanceScanThisFar, PI);
+	}
+
+	if (cmd == MenuLite_Select)
+	{
+		// The menu returned to the user was: (back), (all), (refresh list), new dancer(0), new dancer(1)...
+		cmd = llList2Integer(tmpList,1);	// We do everything based on zero as the starting point
+		if ((cmd >= 0) && (cmd < llGetListLength(nearbyAVs)+3))	// So length+3 (back)+(all)+(refresh list)
+		{
+			if (cmd == 0)
+			{
+				nearbyAVs = [];
+				nearbyAVsKeys = [];
+				MessageGoToMenu(Define_ADMINLINKID);
+				return;
+			}
+
+			if (cmd == 1)
+			{
+				// Try to add everyone - until we can't get a linkid for someone and they are in order of closest to fartherest
+				for (cmd=2; (cmd<(llGetListLength(nearbyAVs)+2)) && (controllerLinkid != -1); cmd++)
+				{
+					controllerLinkid = GetDanceController();
+					if (controllerLinkid != -1)
+					{
+						OwnerSay("DCMSG008", [ llList2String(nearbyAVs, cmd-2) ]);
+						DoAddDancer(llList2String(nearbyAVs, cmd-2), llList2Key(nearbyAVsKeys, cmd-2), controllerLinkid);
+					}
+				}
+			}
+			else
+			{
+				if (cmd > 2)
+				{
+					controllerLinkid = GetDanceController();
+					OwnerSay("DCMSG008", [ llList2String(nearbyAVs, cmd-3) ]);
+					DoAddDancer(llList2String(nearbyAVs, cmd-3), llList2Key(nearbyAVsKeys, cmd-3), controllerLinkid);
+				}
+			}
+		}
+		else
+			OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
+
+		tmpList = [];
+		MessageGoToMenu(Define_ADDDANCERLINKID);	// Refresh the add dancer menu (mostly I find that all is handy - but adding a number of dancers is a pain)
+	}
+}
+
+
+// Handle the admin menu requests for getting a list of dancers who could be removed and then removing one of them
+#define REMOVE_DANCERS_MENU_NAME "Remove which dancer?"
+HandleRemoveDancer()
+{
+	integer cmd = llList2Integer(tmpList,0);
+	integer length = llGetListLength(dancersLinks);
+
+	if (cmd == MenuLite_GetMenuRange)
+	{
+		integer startIndex = llList2Integer(tmpList,1);
+		integer linkid = llList2Integer(tmpList, 2);
+		integer number = llList2Integer(tmpList,3);
+
+		if ((startIndex >= length) || (startIndex < 0))
+			MessageGoToMenu(Define_ADMINLINKID);	// No reason for a range - just go to the admin menu - there are NO dancers to remove
+		else
+		{
+			// Check the upper range and adjust downward if required (add a 'back' as the first entry)
+			if ((startIndex+number) > length+1)
+				number = (length-startIndex);
+			
+			if (number > 0)
+			{
+				tmpList = [ llDumpList2String(["#1 Back",Define_REMOVEDANCERSLINKID,0],"|") ];	// First menu entry is 'Back'
+				for (i=0; i < number; ++i)
+				{
+					tmpStr = llDumpList2String(["#"+(string)(i+startIndex+2)+" "+llList2String(dancers, i+startIndex),Define_REMOVEDANCERSLINKID,(startIndex+i)+1],"|");
+					tmpList = AppendStringToList(tmpList, tmpStr);
+				}
+				
+				tmpStr = llDumpList2String(tmpList, "|||");
+				MessageSendMenuRange(linkid, REMOVE_DANCERS_MENU_NAME, length+1, startIndex, Define_FlagRangeConstrainedMenu, Define_REMOVEDANCERSLINKID, tmpStr);
+				return;
+			}
+			tmpList = [];
+			MessageGoToMenu(Define_ADMINLINKID);
+			return;
+		}
+	}
+
+	if (cmd == MenuLite_Select)
+	{
+		// The menu returned to the user was: (back), dancer(0), dancer(1)...
+		cmd = llList2Integer(tmpList,1);	// Get the selected item from the list...
+		if ((cmd >= 0) && (cmd < length+1))	// +1 for the (back) option
+		{
+			if (cmd == 0)
+			{
+				MessageGoToMenu(Define_ADMINLINKID);
+				return;
+			}
+			else
+				DoReleaseDancer(cmd-1,TRUE);
+		}
+		else
+			OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
+
+		MessageGoToMenu(Define_REMOVEDANCERSLINKID);	// Back to the remove dancers menu with you...
+	}
+}
+
+// Handle the admin menu requests for getting a list of dancers who will have their group flags changed...
+#define CHANGE_DANCERS_MENU_NAME "Change settings for?"
+HandleChangeGroups()
+{
+	integer cmd = llList2Integer(tmpList,0);
+	integer length = llGetListLength(dancersLinks);
+
+	if (cmd == MenuLite_GetMenuRange)
+	{
+		integer startIndex = llList2Integer(tmpList,1);
+		integer linkid = llList2Integer(tmpList, 2);
+		integer number = llList2Integer(tmpList,3);
+
+		if ((startIndex >= length) || (startIndex < 0))
+			MessageSendMenuRange(linkid, CHANGE_DANCERS_MENU_NAME, length+1, 0, Define_FlagRangeConstrainedMenu, Define_LISTDANCERSLINKID, "");
+		else
+		{
+			// Check the upper range and adjust downward if required (add a 'back' as the first entry)
+			//  and include everyone on the list (so everyone can have their group flags changed)
+			if ((startIndex+number) > length+1)
+				number = (length-startIndex);
+			
+			if (number > 0)
+			{
+				// First menu entry is 'Back' 
+				tmpList = [ llDumpList2String(["#1 Back",Define_LISTDANCERSLINKID,0],"|") ];
+				for (i=0; i < number; ++i)
+				{
+					tmpStr = llDumpList2String(["#"+(string)(i+startIndex+2)+" "+llList2String(dancers, i+startIndex),Define_LISTDANCERSLINKID,i+startIndex+1],"|");
+					tmpList = AppendStringToList(tmpList, tmpStr);
+				}
+				
+				tmpStr = llDumpList2String(tmpList, "|||");
+				MessageSendMenuRange(linkid, CHANGE_DANCERS_MENU_NAME, length+1, startIndex, Define_FlagRangeConstrainedMenu, Define_LISTDANCERSLINKID, tmpStr);
+				return;
+			}
+			
+			OwnerSay("DCMSG009", [ ]);
+			tmpList = [];
+			MessageGoToMenu(Define_ADMINLINKID);
+			return;
+		}
+	}
+
+	if (cmd == MenuLite_Select)
+	{
+		// The menu returned to the user was: (back), dancer(0), dancer(1)...
+		i = llList2Integer(tmpList,1);	// We do everything based on zero as the starting point
+		if ((i >= 0) && (i < length+1))	// For the (back)+list
+		{
+			if (i == 0)
+			{
+				MessageGoToMenu(Define_ADMINLINKID);
+				return;
+			}
+			else
+			{
+				cmd = llList2Integer(dancersLinks, i-1)+Define_DANCERCHANGEGROUPSOFFSET;
+				MessageGoToMenu(cmd);
+				return;
+			}
+		}
+		else
+			OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
+
+		MessageGoToMenu(Define_ADMINLINKID);	// Back to the admin menu with you...
+	}
+
+}
+
+
+ScanForDancerScripts()
+{
+	integer scriptsTotal;
+	integer scriptNumber;
+	integer baseLen = llStringLength(DancerScriptBasename);
+	list numberCheck=["0","1","2","3","4","5","6","7","8","9"];
+
+	// Look up ALL of the scripts for dancers - remember their names and calculate their link #'s
+	scriptsTotal = llGetInventoryNumber(INVENTORY_SCRIPT);
+	for (i=0; i<scriptsTotal; ++i)
+	{
+		scriptNumber = -1;
+		tmpStr = llGetInventoryName(INVENTORY_SCRIPT, i);
+		if (llStringLength(tmpStr) > baseLen)
+		{
+			if (llGetSubString(tmpStr, 0, baseLen-1) == DancerScriptBasename)
+			{
+				j = llListFindList(numberCheck, [llGetSubString(tmpStr, -1, -1)]);
+				if (j != -1)
+				{
+					k = llListFindList(numberCheck, [llGetSubString(tmpStr, -2, -2)]);
+					if (k != -1)
+						scriptNumber = (10 * k) + j;
+					else
+						scriptNumber = j;
+				}
+			}
+		}
+		
+		// Ok - check if we got a script number or not... we're saving link #'s for dance controllers...
+		if (scriptNumber > 0)
+		{
+			// Remember ALL of the controller script names and link ids (so we can add and subtract from the
+			//  available when the # of possible dancers is changed)
+			//
+			// We also could have had scripts added or removed - so check if we know about this script
+			//  or not - if we don't then just add it. If we do - skip adding it.
+			if (-1 == llListFindList(controllersLinkIds, [Define_DANCERSLINKID+scriptNumber]))
+			{
+				controllersLinkIds = AppendIntegerToList(controllersLinkIds, (Define_DANCERSLINKID+scriptNumber));
+				controllerScripts = AppendStringToList(controllerScripts, tmpStr);
+			}
+		}
+	}
+
+	// Ok - now we've added scripts that we didn't know about - but we may have a second problem which is
+	//  dancer scripts that were removed and now we need to notice they are gone. So let's look to see
+	scriptNumber = llGetListLength(controllersLinkIds);
+	for (i=0; i < scriptNumber; i++)
+	{
+		// Check if the script still exists or not - we know the names - so just peek
+		if (INVENTORY_NONE == llGetInventoryType(llList2String(controllerScripts, i)))
+		{
+			// Hmm - gone - let's see if it's one of our current dancers or not...
+			scriptsTotal = llListFindList(dancersLinks, [llList2Integer(controllersLinkIds,i)]);
+			if (-1 != scriptsTotal)
+			{
+				// Uh oh - we lost a dancer that was active - tell the owner and forget about this dancer
+				OwnerSay("DCMSG013", [ llList2String(controllerScripts, i), llList2String(dancers, scriptsTotal) ] );
+				
+				// No reason to do anything more than forget this dancer completely (sigh)
+				dancers = DeleteListEntry(dancers, scriptsTotal);
+				dancerKeys = DeleteListEntry(dancerKeys, scriptsTotal);
+				dancersLinks = DeleteListEntry(dancersLinks, scriptsTotal);
+			}
+			
+			// This dance script is gone (shrug) - may as well forget about it for now
+			controllerScripts = DeleteListEntry(controllerScripts, i);
+			controllersLinkIds = DeleteListEntry(controllersLinkIds, i);
+		}
+	}
+
+	// Calculate the number of controllers we should enable... and then let the change routine handle it
+	//
+	// Two constraints here - one is that we have to decrease the # of enabled controllers to the # of scripts we have
+	// (on update - this can GO TO ZERO!)
+	// The second constraint - on an inventory change - we reset the number of dancers (if it's below the default number)
+	//  up the the default number. This only happens when # of dancers is less that the default and takes us back up
+	//  to the default number. On an upgrade this will happen. On an inventory change - add of a notecard and the number
+	//  of dancers was less than the default, we will go back to the default # of dancers - we can't tell the difference
+	//  between these two cases... fortunately the default is small enough that some extra enabled dancers will probably
+	//  make very little difference on any inventory change.
+	scriptsTotal = controllersEnabled;
+	if (scriptsTotal > llGetListLength(controllerScripts))
+		scriptsTotal = llGetListLength(controllerScripts);
+	if ((scriptsTotal < DefaultActiveDancers) && (llGetListLength(controllerScripts) >= DefaultActiveDancers))
+		scriptsTotal = DefaultActiveDancers;
+
+	// Get the controllers available list of link id's from the pool of ALL controller link ids that we know about
+	ChangeActiveControllers(scriptsTotal);
+	
+	// Now turn off any extra dance controller scripts (just stop them)
+	DoSetActiveDancers();
+}
+
+
+// Check if the owner is a dancer or not - if NOT, then add the owner to the start of the list
+//  and pretend we found them like everyone else.
+//
+// Note: Sensor documentation is a lil odd - doesn't tell you that the object attached to an
+//  owner does NOT detect the attached AV. This means that when the owner of the HUD stops
+//  dancing then we can NOT add them back in via a simple sensor scan. So we do the next
+//  best here and search for the owner in the dancer keys (because names are probably going
+//  to be fuzzy and change) and add the owner IF they are not dancing as a person who could
+//  be added. The reason this failed on a sim with other folks was because the owner was only
+//  being added in the case of no one being found (which isn't the case on most other sims
+//  especially with other AVs there).  (sigh)
+//
+// So - we work arround this problem by detecting if the owner is dancing or not and if NOT
+//  then we add the owner as an option of one of the AVs we detected.
+integer CheckForOwner(integer linkid)
+{
+	integer i2;
+	integer j2;
+	integer controllerLinkid;
+	list p;
+	string s;
+
+	// Check if the owner is already dancing or not
+	if (-1 == llListFindList(dancerKeys, [llGetOwner()]))
+	{
+		// Owner is NOT dancing - sensor doesn't pick up the owner - so prepend to the start of the list
+		//  the owner name/key for our sensor sweep
+		nearbyAVsKeys = InsertListToList(nearbyAVsKeys, [llGetOwner()], 0);
+		nearbyAVs = InsertListToList(nearbyAVs, [llKey2Name(llGetOwner())], 0);
+	}
+
+	// Did we find anyone to add? (including the owner)
+	i2 = llGetListLength(nearbyAVs);
+	if (!autoInvite)
+	{
+		// If we are not automatically inviting - then we are going to the add dancer menu - so do that
+		if (i2 > 0)
+		{
+			// We know that the admin menu has at least 30 slots - which means we know that <back>,<all>+<16 more> is 18
+			//  and they all fit on the menu - so we do NO range checking here.
+			//  Start with a 'back' and an 'all' options on the admiin menu
+			p = [ llDumpList2String(["#1 Back",Define_ADDDANCERLINKID,0],"|") ];
+			p += [ llDumpList2String(["#2 All",Define_ADDDANCERLINKID,1], "|") ];
+			p += [ llDumpList2String(["#3 Refresh list",Define_ADDDANCERLINKID,2], "|") ];
+			i = 3;
+			
+			for (j2=0; j2 < i2; ++j2)
+			{
+				++i;
+				s = llDumpList2String(["#"+(string)i+" "+llList2String(nearbyAVs, j2),Define_ADDDANCERLINKID, j2+3],"|");
+				p = AppendStringToList(p, s);
+			}
+			
+			s = llDumpList2String(p, "|||");
+			p = [];
+	
+			MessageSendMenuRange(linkid, ADD_DANCERS_MENU_NAME, i, 0, Define_FlagRangeConstrainedMenu, Define_ADDDANCERLINKID, s);
+			s = "";
+			return TRUE;
+		}
+		return FALSE;
+	}
+	else
+	{
+		// Ok - we've reached the meat of the auto invite code - the list of new dancers has already been
+		//  filtered for the dancers we know already (they are happy and dancing with us - yahoo) and for the
+		//  folks that have said NO (denied us the ability to dance). So we just try to invite as many as we can.
+		//
+		// We keep doing this invite until we run out of controllers - then we try anyways - hoping that a
+		//  dance controller has freed up (someone poofed out of the sim)
+		for (j2 = 0; j2 < i2; ++j2)
+		{
+			controllerLinkid = GetDanceController();
+			if (controllerLinkid != -1)
+			{
+				OwnerSay("DCMSG008", [ llList2String(nearbyAVs, j2) ]);
+				DoAddDancer(llList2String(nearbyAVs, j2), llList2Key(nearbyAVsKeys, j2), controllerLinkid);
+			}
+		}
+		return TRUE;
+	}
+}
+
+
+default
+{
+	state_entry()
+	{
+		ScanForDancerScripts();
+	}
+
+	// This script is controlled completely by linked messages - everything comes in and goes out with a linked message
+	link_message(integer sender_num, integer num, string str, key id)
+	{
+		integer i2;
+		integer j2;
+		integer k2;
+
+		// Optimize for dropping messages very quickly - so not a lot of lag during useless message handling
+		//  think of this as an optimized get out of here quickly check.
+		if (-1 == llListFindList([Define_DANCERSADMINLINKID, Define_ADDDANCERLINKID, Define_REMOVEDANCERSLINKID, Define_LISTDANCERSLINKID, 0], [num]))
+		{
+			return;	// Not our message - poof - go away quickly
+		}
+
+		if (num == Define_DANCERSADMINLINKID)
+		{
+			// Handle each of the different commands to this dance controller - we do the most likely ones first...
+			tmpList = llParseString2List(str, ["|"], []);
+
+			i2 = (integer) str;	// Most commands are integers so they parse faster
+
+			// Add dancer
+			if (DancersAddDancer == i2)
+			{
+				tmpList = llParseString2List((string)id, ["|"], []);	
+				i2 = GetDanceController();
+				DoAddDancer(llList2String(tmpList, 0), llList2Key(tmpList, 1), i2);
+				return;
+			}
+			
+			// Release/remove a dancer
+			if (DancersRemoveDancer == i2)
+			{
+				list p = llParseString2List((string)id,["|"],[]);
+				DoReleaseDancer(llListFindList(dancerKeys, [llList2Key(p,0)]), llList2Integer(p,1));
+				return;
+			}
+
+			if (DancersSetActiveDancers == i2)
+			{
+				ChangeActiveControllers((integer)((string) id));
+				return;
+			}
+			if (DancersSetChatChannel == i2)
+			{
+				ownerChatChannel = (integer)((string) id);
+				MessageChangedChatChannel(ownerChatChannel);
+				return;
+			}
+			if (DancersShowAll == i2)
+			{
+				llOwnerSay("There are "+(string)llGetListLength(dancersLinks)+" active dancers, with "+(string)controllersEnabled
+							+" dancers enabled and a total of "+(string)llGetListLength(controllersLinkIds)+" dancer scripts ("+DancerScriptBasename+" ##)");
+				for (i2 = 0; i2 < llGetListLength(dancersLinks); ++i2)
+					llOwnerSay("    Dancer "+(string)(i2+1)+":"+llList2String(dancers,i2)+" (on script number "+(string)(llList2Integer(dancersLinks,i2)-Define_DANCERSLINKID)+")");
+				llOwnerSay("Available dancer scripts are:");
+				for (i2 = 0; i2 < llGetListLength(controllersAvailable); ++i2)
+					llOwnerSay("   Available "+(string)(i2+1)+" is script number "+(string)(llList2Integer(controllersAvailable,i2)-Define_DANCERSLINKID));
+				llOwnerSay(CompanyName+" "+ProductName+" "+DanceHUD_Revision);
+				return;
+			} 
+			
+			if (DancersLoadAllAnims == i2)
+			{
+				MessageChatLoadAllAnims(dancersLinks);
+				return;
+			}
+			
+			if (DancersAutoInvite == i2)
+			{
+				autoInvite = (integer)((string) id);
+				if (autoInvite)
+				{
+					// For auto invite - we clear the previous list of invited folks and start a sensor that repeats every second
+					refusedDance = [];
+					
+					// We use a timer to repeat, but try the sensor right away - the repeat sensor waits
+					//  until the complete time is done, then starts - weird. For a long delay - it looks
+					//  like nothing happens till the timer runs out - bleck.
+					llSetTimerEvent(5.0);	// Timer for 5.0 second (so we can repeat the sensor)
+					llSensor("", NULL_KEY, AGENT, DanceScanThisFar, PI);
+				}
+				else
+				{
+					llSensorRemove();		// Turn off the repeating sensor (just in case)
+					llSetTimerEvent(0.0);	// Turn off the timer
+					MessageStopAutoInviteDancers();	// Uninvite anyone who has not accepted the invite yet...
+				}
+			}
+			
+			if (DancersReleaseAll == i2)
+			{
+				j2 = llGetListLength(dancersLinks);
+				for (i2 = 0; i2 < j2; i2++)
+					DoReleaseDancer(0, TRUE);
+				return;
+			}
+
+		}	// End if for DancerAdmin only
+
+
+		// Now support for the admin menu of add dancers		
+		if (Define_ADDDANCERLINKID == num)
+		{
+			tmpList = llParseString2List(str, ["|"], []);
+			HandleAddDancer();
+			return;
+		}
+
+
+		// Now support for the admin menu of removing dancers		
+		if (Define_REMOVEDANCERSLINKID == num)
+		{
+			tmpList = llParseString2List(str, ["|"], []);
+			HandleRemoveDancer();
+			return;
+		}
+		
+		// Support for getting the list of dancers for changing group flags
+		if (Define_LISTDANCERSLINKID == num)
+		{
+			tmpList = llParseString2List(str, ["|"], []);	
+			HandleChangeGroups();
+			return;
+		}
+
+
+		if ((num == 0) && ("RESET" == str))
+		{
+			// Start the scripts that we have stopped (could be any of the dance controllers)
+			//  so that they will receive the reset message - the notes on reset other script
+			//  imply that if the script is stopped, the reset other has no effect... so we
+			//  loop through all the possible controller scripts and any that are not in our
+			//  active lists (dancers or available controllers), then we start them up.
+			j2 = llGetListLength(controllersLinkIds);
+			for (i2 = 0; i2 < j2 ; ++i2)
+			{
+				k2 = llList2Integer(controllersLinkIds, i2);
+				if ((-1 == llListFindList(dancersLinks, [k2])) && (-1 == llListFindList(controllersAvailable, [k2])))
+					SetScriptState(llList2String(controllerScripts, i2), TRUE);
+			}
+			llSleep(1);	// Wait for a second for the stopped scripts to get running...
+			for (i2 = 0; i2 < j2 ; ++i2)
+			{
+				k2 = llList2Integer(controllersLinkIds, i2);
+				if ((-1 == llListFindList(dancersLinks, [k2])) && (-1 == llListFindList(controllersAvailable, [k2])))
+					MessageResetSpecific(k2);
+			}
+			llSensorRemove();		// Turn off the repeating sensor (just in case)
+			llResetScript();
+		}
+	}
+
+	// Deal with the sensor which is simply here to get the avatars nearby - which we send to the
+	//  UI as a menu range (max # of AV's returned is 16 and it is sorted by distance already)
+	sensor(integer count)
+	{
+		key newKey;
+		integer i2;
+		integer i3;
+		integer linkid = llList2Integer(nearbyAVs, 2);	// Get back the parameter from wanting to add dancers (where to send the request)
+
+		// Build our list of avatars near us that are NOT dancing yet
+		nearbyAVs = [];
+		nearbyAVsKeys = [];
+		for (i2=0; i2<count; ++i2)
+		{
+			newKey = llDetectedKey(i2);
+			if (-1 == llListFindList(dancerKeys, [newKey]))
+			{
+				// Weird logic here - but it is to reduce the comparisons - as lsl will evaluate the whole
+				//  if clause instead of allowing for early termination (like C or C++). So we make lil
+				//  conditions that are fast and the longer duration ones we go out of our way to filter
+				//  to get to them - only if we need to. We build up the conclusion - do we need to add
+				//  this new avatar or not?
+				i3 = TRUE;		// True if !autoInvite
+				if (autoInvite)
+				{
+					// If we can find the AV key in our refusedDance list, then we know they told us to
+					//  pound sand - so we do NOT add them to the list of folks to invite.
+					if (-1 != llListFindList(refusedDance, [newKey]))
+						i3 = FALSE;
+				}
+				
+				if (i3)
+				{
+					nearbyAVs = AppendStringToList(nearbyAVs, llDetectedName(i2));
+					nearbyAVsKeys = AppendStringToList(nearbyAVsKeys, (string) newKey);
+				}
+			}
+		}
+		
+		if (CheckForOwner(linkid))
+			return;
+
+		if (!autoInvite)
+		{
+			OwnerSay("DCMSG006", [DanceScanThisFar]);
+			MessageGoToMenu(Define_ADMINLINKID);
+		}
+	}
+
+	// If we get nothing - this is really strange - we're treating it as if we found no new dancers	
+	no_sensor()
+	{
+		integer linkid = llList2Integer(nearbyAVs, 2);	// Get back the parameter from wanting to add dancers (where to send the request)
+		
+		nearbyAVs = [];
+		nearbyAVsKeys = [];		
+
+		if (CheckForOwner(linkid))
+			return;
+
+		if (!autoInvite)
+		{
+			OwnerSay("DMSG007", [DanceScanThisFar]);
+			MessageGoToMenu(Define_ADMINLINKID);
+		}	
+	}
+
+	timer()
+	{
+		llSensor("", NULL_KEY, AGENT, DanceScanThisFar, PI);
+	}
+
+	// If the user teleports, then we need to stop the extra dancer scripts again
+	// (teleport/sim change will restart the stopped scripts - near as I can tell
+	//  by documentation that I can dig up about it)
+	changed(integer flags)
+	{
+		if (flags & (CHANGED_TELEPORT | CHANGED_REGION))
+			DoSetActiveDancers();
+		if (flags & CHANGED_INVENTORY)
+			ScanForDancerScripts();
+	}
+}

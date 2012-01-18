@@ -1,0 +1,8 @@
+#ifndef UTILOWNERSAY
+#define UTILOWNERSAY
+
+OwnerSay(string msg, list params)
+{
+	llMessageLinked(LINK_THIS, Define_LANGUAGELINKID, msg, (key) llDumpList2String(params, "|"));
+}
+#endif
