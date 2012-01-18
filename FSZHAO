@@ -1,3 +1,11 @@
+// This started life as ZHAO-II-core with enhancements
+//
+
+#include "GlobalDefinitions"
+#include "MenuList.h"
+#include "Lists.h"
+
+
 // ZHAO-II-core - Ziggy Puff, 07/07
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -38,8 +46,6 @@
 //
 //   llMessageLinked(LINK_SET, 0, "ZHAO_AOON", NULL_KEY);
 //
-// This script uses a listener on channel -91234. If other scripts are added to the ZHAO, make sure 
-// they don't use the same channel
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -54,7 +60,7 @@
 // The token (in this case, [ Walking ]) identifies the animation to be overridden. The rest is a 
 // list of animations, separated by the '|' (pipe) character. You can specify multiple animations 
 // for Stands, Walks, Sits, and GroundSits. Multiple animations on any other line will be ignored. 
-// You can have up to 12 animations each for Walks, Sits and GroundSits. There is no hard limit 
+// You can have up as many animations each for Walks, Sits and GroundSits. There is no hard limit 
 // on the number of stands, but adding too many stands will make the script run out of memory and 
 // crash, so be careful. You can repeat tokens, so you can split the Stands up across multiple lines. 
 // Use the [ Standing ] token in each line, and the script will add the animation lists together.
@@ -101,6 +107,15 @@
 // [ Settings ]
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Fleur Cooperstone - 2011-03-25
+//			Merged the notecard loading code back into the core script (silly to seperate them at all)
+//			Also dropped the listen completely - no need of it as we will NOT use dialogs for AO changes
+//			And removed settings section too - no sense in them either - not standard on any other zhao... so gone.
+//			Integrated messages with the Fleursoft DanceHUD - so that instead of dialogs we use the DanceHUD
+//			for selections. Added cpp preprocessor handling of constants instead of variables (reduced variable
+//			namespace being used). Removed seamless sits (won't work in opensim as id of animation doesn't make
+//			any sense there). Dropped the idea of 'some' overrides could have multiple animations - they all can now.
 
 // Marcus Gray, 2010-01-03
 //          ADDED option to disable AO in Mouselook (interface, core)
@@ -178,14 +193,12 @@
 
 // CONSTANTS
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Default notecard we read on script_entry
-string defaultNoteCard = "Default";
 
 // List of all the animation states
-list animState = [ "Sitting on Ground", "Sitting", "Striding", "Crouching", "CrouchWalking",
-                   "Soft Landing", "Standing Up", "Falling Down", "Hovering Down", "Hovering Up",
-                   "FlyingSlow", "Flying", "Hovering", "Jumping", "PreJumping", "Running",
-                   "Turning Right", "Turning Left", "Walking", "Landing", "Standing" ];
+#define animState [ "Sitting on Ground", "Sitting", "Striding", "Crouching", "CrouchWalking", \
+                   "Soft Landing", "Standing Up", "Falling Down", "Hovering Down", "Hovering Up", \
+                   "FlyingSlow", "Flying", "Hovering", "Jumping", "PreJumping", "Running", \
+                   "Turning Right", "Turning Left", "Walking", "Landing", "Standing" ]
 
 // Logic change - we now have a list of tokens. The 'overrides' list is the same length as this, 
 // i.e. it has one entry per token, *not* one entry per animation. Multiple options for a token 
@@ -197,104 +210,92 @@ list animState = [ "Sitting on Ground", "Sitting", "Striding", "Crouching", "Cro
 // we combine some tokens after the notecard is read (striding/walking, landing/soft landing), etc.
 // The publicized tokens list only contains one entry for each pair, but we'll accept both, and
 // combine them later
-//list tokens = [
-//    "[ Sitting On Ground ]",    // 0
-//    "[ Sitting ]",              // 1
-//    "",                         // 2 - We don't allow Striding as a token
-//    "[ Crouching ]",            // 3
-//    "[ Crouch Walking ]",       // 4
-//    "",                         // 5 - We don't allow Soft Landing as a token
-//    "[ Standing Up ]",          // 6
-//    "[ Falling ]",              // 7
-//    "[ Flying Down ]",          // 8
-//    "[ Flying Up ]",            // 9
-//    "[ Flying Slow ]",          // 10
-//    "[ Flying ]",               // 11
-//    "[ Hovering ]",             // 12
-//    "[ Jumping ]",              // 13
-//    "[ Pre Jumping ]",          // 14
-//    "[ Running ]",              // 15
-//    "[ Turning Right ]",        // 16
-//    "[ Turning Left ]",         // 17
-//    "[ Walking ]",              // 18
-//    "[ Landing ]",              // 19
-//    "[ Standing ]",             // 20
-//    "[ Swimming Down ]",        // 21
-//    "[ Swimming Up ]",          // 22
-//    "[ Swimming Forward ]",     // 23
-//    "[ Floating ]",             // 24
-//    "[ Typing ]"                // 25
-//    "[ Settings ]"              // 26 this is new... we'll see how i can make it work
-//];
+//
+// We do NOT allow "Striding" or "Soft Landing" as a token
+#define tokens  [ \
+    "[ Sitting On Ground ]", \
+    "[ Sitting ]", \
+    "", \
+    "[ Crouching ]", \
+    "[ Crouch Walking ]", \
+    "", \
+    "[ Standing Up ]", \
+    "[ Falling ]", \
+    "[ Flying Down ]", \
+    "[ Flying Up ]", \
+    "[ Flying Slow ]", \
+    "[ Flying ]", \
+    "[ Hovering ]", \
+    "[ Jumping ]", \
+    "[ Pre Jumping ]", \
+    "[ Running ]", \
+    "[ Turning Right ]", \
+    "[ Turning Left ]", \
+    "[ Walking ]", \
+    "[ Landing ]", \
+    "[ Standing ]", \
+    "[ Swimming Down ]", \
+    "[ Swimming Up ]", \
+    "[ Swimming Forward ]", \
+    "[ Floating ]", \
+    "[ Typing ]" ]
+
 //
 //      |       |       |
 //      |       |       |
 //      V       V       V
 //
-integer numOverrides = 27;       // number of overrides == tokens
-
-// The tokens for which we allow multiple animations
-//list multiAnimTokenIndexes = [
-//    0,  // "[ Sitting On Ground ]"
-//    1,  // "[ Sitting ]"
-//    18, // "[ Walking ]"
-//    20  // "[ Standing ]"
-//];
+#define numOverrides 27
+	// number of overrides == tokens
 
 // Index of interesting animations
-integer noAnimIndex     = -1;
-integer sitgroundIndex  = 0;
-integer sittingIndex    = 1;
-integer stridingIndex   = 2;
-integer standingupIndex = 6;
-integer hoverdownIndex  = 8;
-integer hoverupIndex    = 9;
-integer flyingslowIndex = 10;
-integer flyingIndex     = 11;
-integer hoverIndex      = 12;
-integer walkingIndex    = 18;
-integer standingIndex   = 20;
-integer swimdownIndex   = 21;
-integer swimupIndex     = 22;
-integer swimmingIndex   = 23;
-integer waterTreadIndex = 24;
-integer typingIndex     = 25;
+#define noAnimIndex -1
+#define sitgroundIndex 0
+#define sittingIndex 1
+#define stridingIndex 2
+#define softLandingIndex 5
+#define standingupIndex 6
+#define hoverdownIndex 8
+#define hoverupIndex 9
+#define flyingslowIndex 10
+#define flyingIndex 11
+#define hoverIndex 12
+#define walkingIndex 18
+#define landingIndex 19
+#define standingIndex 20
+#define swimdownIndex 21
+#define swimupIndex 22
+#define swimmingIndex 23
+#define waterTreadIndex 24
+#define typingIndex 25
 
 // list of animations that have a different value when underwater
-list underwaterAnim = [ hoverIndex, flyingIndex, flyingslowIndex, hoverupIndex, hoverdownIndex ];
+#define underwaterAnim [ hoverIndex, flyingIndex, flyingslowIndex, hoverupIndex, hoverdownIndex ]
 
 // corresponding list of animations that we override the overrider with when underwater
-list underwaterOverride = [ waterTreadIndex, swimmingIndex, swimmingIndex, swimupIndex, swimdownIndex];
+#define underwaterOverride [ waterTreadIndex, swimmingIndex, swimmingIndex, swimupIndex, swimdownIndex]
 
 // This is an ugly hack, because the standing up animation doesn't work quite right
 // (SL is borked, this has been bug reported)
 // If you play a pose overtop the standing up animation, your avatar tends to get
 // stuck in place.
 // This is a list of anims that we'll stop automatically
-list autoStop = [ 5, 6, 19 ];
+#define autoStop [ softLandingIndex, standingupIndex, landingIndex ]
 // Amount of time we'll wait before autostopping the animation (set to 0 to turn off autostopping)
-float autoStopTime = 1.5;
+//  The duration is 1/10ths of seconds (so 15 really is 1.5 seconds)
+#define autoStopTime 15
 
 // How long before flipping stand animations
-integer standTimeDefault = 30;
+#define standTimeDefault 30
 
 // How fast we should poll for changed anims (as fast as possible)
 // In practice, you will not poll more than 8 times a second.
-float timerEventLength = 0.25;
+#define timerEventLength 0.25
 
 // The minimum time between events.
 // While timerEvents are scaled automatically by the server, control events are processed
 // much more aggressively, and needs to be throttled by this script
-float minEventDelay = 0.25;
-
-// The key for the typing animation
-//      key typingAnim      =       "c541c47f-e0c0-058b-ad1a-d6ae3a4584d9";
-// we dont need this right now ;)
-
-// Listen channel for pop-up menu
-//
-// Mod: Channel will now be generated from owner UUID.
-integer listenChannel = -1; //-91234;
+#define minEventDelay 0.25
 
 // GLOBALS
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -312,6 +313,8 @@ string curGsitAnim = "";                    // Current ground sit animation
 string curTypingAnim = "";                  // Current typing animation
 
 list overrides = [];                        // List of animations we override
+key notecardLineKey = NULL_KEY;				// Key for loading a notecard
+integer notecardIndex = 0;					// Which line number are we on?
 
 string  lastAnim = "";                      // last Animation we ever played
 string  lastAnimSet = "";                   // last set of animations we ever played
@@ -321,7 +324,7 @@ string  lastAnimState = "";                 // last thing llGetAnimation() retur
 integer dialogStandTime = standTimeDefault;       // How long before flipping stand animations
 integer standTime = standTimeDefault;       // How long before flipping stand animations
 
-integer animOverrideOn = TRUE;              // Is the animation override on?
+integer animOverrideOn = FALSE;             // Is the animation override on?
 integer gotPermission  = FALSE;             // Do we have animation permissions?
 
 integer listenHandle;                       // Listen handlers - only used for pop-up menu, then turned off
@@ -347,9 +350,9 @@ key Owner = NULL_KEY;
 // String constants to save a few bytes
 string EMPTY = "";
 //
-string TIMINGSEPARATOR = "2O";
 //
-string SEPARATOR = "|";
+#define SEPARATOR "|"
+
 string TRYAGAIN = "Please correct the notecard and try again.";
 string S_SIT = "Sit override: ";
 string S_SIT_AW = "Sit anywhere: ";
@@ -357,56 +360,16 @@ string S_TYPING = "Typing override: ";
 string S_TKILL_ON = "Typing killer: On - This also removes custom typing animations!";
 string S_TKILL_OFF = "Typing killer: Off";
 
-//////////////////////////////////////////////////////////////////////////
-/// Seamless Sit mod by Moeka Kohime
-///
-integer em;
-list temp;
-key sit = "1a5fe8ac-a804-8a5d-7cbd-56bd83184568";
-
-// CODE
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Globals for loading a notecard
+integer counter;
 
 //////////////////////////////////////////////////////////////////////////
-/// Seamless Sit mod by Moeka Kohime
-integer CheckSit()
-{
-    if(!sitOverride)
-        return FALSE;
-    temp = llGetAnimationList(llGetOwner());
-    if (temp==[])
-        return FALSE;
-    if (llListFindList(temp,[sit])!=-1)
-        return TRUE;
-    return FALSE;
-}
-
-
 startAnimationList( string _csvAnims ) {
     list anims = llCSV2List( _csvAnims );
     integer i;
     for( i=0; i<llGetListLength(anims); i++ )
     {
-//
-//  Mod: Get the special timing parameter
-        list newAnim = llParseStringKeepNulls( llList2String(anims,i), [TIMINGSEPARATOR], []);
-        string newAnimName = llList2String(newAnim, 0);
-        
-
-        if( llGetListLength(newAnim) == 2 )
-        {
-            integer newStandTime = (integer)llList2String(newAnim, 1);
-            if( newStandTime > 0)
-                standTime = (integer)llList2String(newAnim, 1);
-            else
-                OwnerSay("Found improper custom timing parameter for animation \""+ newAnimName + "\" - The value must be greater 0, please correct this!");
-        }
-        else
-            standTime = dialogStandTime;
-//
-//
-//        llStartAnimation( llList2String(anims,i) );
-        llStartAnimation( newAnimName );
+        llStartAnimation( llList2String(anims,i) );
     }
 }
 
@@ -415,15 +378,7 @@ stopAnimationList( string _csvAnims ) {
     integer i;
     for( i=0; i<llGetListLength(anims); i++ )
     {
-//
-//  Mod: Get the special timing parameter
-        list newAnim = llParseStringKeepNulls( llList2String(anims,i) ,
-            [TIMINGSEPARATOR], [""]);
-        string newAnimName = llList2String(newAnim, 0);
-//
-//
-//        llStopAnimation( llList2String(anims,i) );
-        llStopAnimation( newAnimName );
+        llStopAnimation( llList2String(anims,i) );
     }
 }
 
@@ -438,7 +393,8 @@ startNewAnimation( string _anim, integer _animIndex, string _state ) {
 
              startAnimationList( newAnim );
 
-            if ( llListFindList( autoStop, [_animIndex] ) != -1 ) {
+#if autoStopTime != 0
+            if (llListFindList( autoStop, [_animIndex] ) != -1) {
                 // This is an ugly hack, because the standing up animation doesn't work quite right
                 // (SL is borked, this has been bug reported)
                 // If you play a pose overtop the standing up animation, your avatar tends to get
@@ -447,9 +403,10 @@ startNewAnimation( string _anim, integer _animIndex, string _state ) {
                    stopAnimationList( lastAnim );
                    lastAnim = EMPTY;
                 }
-                llSleep( autoStopTime );
+                llSleep( autoStopTime/10.0 );
                 stopAnimationList( _anim );
             }
+#endif
         }
         lastAnim = newAnim;
         lastAnimSet = _anim;
@@ -463,7 +420,6 @@ animOverride() {
     string  curAnimState = llGetAnimation( Owner );
     integer curAnimIndex;
     integer underwaterAnimIndex;
-
     // Convert the ones we don't handle
     if ( curAnimState == "Striding" ) {
         curAnimState = "Walking";
@@ -503,12 +459,7 @@ animOverride() {
         // One of the drawbacks of this performance hack is the underwater animations
         // If you fly up, it will keep playing the "swim up" animation even after you've
         // left the water.
-        if(CheckSit()!=TRUE) {// Seamless Sit
-            em=0;
-            return;
-        }else{
-            if(em==0){startNewAnimation( EMPTY, noAnimIndex, _curAnimState );em=1;}   
-        }
+        return;
     }
 
     curAnimIndex        = llListFindList( animState, [curAnimState] );
@@ -517,34 +468,27 @@ animOverride() {
     // For all the multi-anims, we know the animation name to play. Send
     // in the actual overrides index, since that's what this function 
     // expects, not the index into the multi-anim list
-    if ( curAnimIndex == standingIndex ) {
+    if ( curAnimIndex == standingIndex )
+    {
         // Sit Anywhere 
-        if(sitAnywhereOn) { 
+        if (sitAnywhereOn) { 
             startNewAnimation( curGsitAnim, sitgroundIndex, _curAnimState ); 
         }
         else 
         {
-            if( standOverride ){ // Sity Anywhere is OFF AND Stand AO is on ;)
+            if( standOverride )  // Sit Anywhere is OFF AND Stand AO is on ;)
                 startNewAnimation( curStandAnim, standingIndex, _curAnimState );
-            }
-            else {
+            else
                  startNewAnimation( EMPTY, noAnimIndex, _curAnimState);
-            }
-        }
-        
+        }    
     }
-    else if ( curAnimIndex == sittingIndex ) {
+    else if ( curAnimIndex == sittingIndex )
+    {
         // Check if sit override is turned off
-        if (( sitOverride == FALSE ) && ( curAnimState == "Sitting" ) && (CheckSit() != TRUE)) {// Seamless Sit 
+        if (( sitOverride == FALSE ) && ( curAnimState == "Sitting" )) 
             startNewAnimation( EMPTY, noAnimIndex, _curAnimState );
-        }
-        else {
-            if(CheckSit()==TRUE){// Seamless Sit
+        else
             startNewAnimation( curSitAnim, sittingIndex, _curAnimState );
-            } else {
-            startNewAnimation( EMPTY, noAnimIndex, _curAnimState );
-            }
-        }
     }
     else if ( curAnimIndex == walkingIndex ) {
         startNewAnimation( curWalkAnim, walkingIndex, _curAnimState );
@@ -578,8 +522,7 @@ doNextStand(integer fromUI) {
                 startNewAnimation( curStandAnim, standingIndex, lastAnimState );
     
             if ( fromUI == TRUE ) {
-                string newAnimName = llList2String(
-                    llParseStringKeepNulls(curStandAnim, [TIMINGSEPARATOR], []), 0);
+                string newAnimName = curStandAnim;
                 OwnerSay( "Switching to stand '" + newAnimName + "'." );
             }
         }
@@ -623,26 +566,25 @@ doMultiAnimMenu( integer _animIndex, string _animType, string _currentAnim )
 
     list anims = llParseString2List( llList2String(overrides, _animIndex), [SEPARATOR], [] );
     integer numAnims = llGetListLength( anims );
-    if ( numAnims > 12 ) {
-        OwnerSay( "Too many animations, only the first 12 will be displayed.");
-        numAnims = 12;
-        return;
+
+    if ( numAnims > Define_DefaultNumberLines ) {
+        OwnerSay( "Too many animations, only the first "+(string)Define_DefaultNumberLines+" will be displayed.");
+        numAnims = Define_DefaultNumberLines;
     }
 
-    list buttons = [];
     integer i;
     string animNames = EMPTY;
     for ( i=0; i<numAnims; i++ ) {
-        animNames += "\n" + (string)(i+1) + ". " + llList2String( anims, i );
-        buttons += [(string)(i+1)];
+        animNames += llList2String( anims, i )+"|"+(string)Define_AOSELECTLINKID+"|"+(string)i;
+        if (i != (numAnims-1))
+        	animNames += "|||";
     }
     // If no animations were configured, say so and just display an "OK" button
     if ( animNames == EMPTY ) {
-        animNames = "\n\nNo overrides have been configured.";
+        llOwnerSay("No overrides have been configured.");
+        return;
     }
-    llListenControl(listenHandle, TRUE);
-    llDialog( Owner, "Select the " + _animType + " animation to use:\n\nCurrently: " + _currentAnim + animNames, 
-              buttons, listenChannel );
+    MessageSendMenuRange(Define_UILINKID, _animType, numAnims, 0, Define_FlagRangeConstrainedMenu, Define_AOSELECTLINKID, animNames);
 }
 
 // Returns an animation from the multiAnims
@@ -650,14 +592,6 @@ string findMultiAnim( integer _animIndex, integer _multiAnimIndex )
 {
     list animsList = llParseString2List( llList2String(overrides, _animIndex), [SEPARATOR], [] );
     return llList2String( animsList, _multiAnimIndex );
-}
-
-// Print free memory. Separate function to save a few bytes
-printFreeMemory()
-{
-    integer freemem = llGetFreeMemory();
-    integer memory = (integer)((float)freemem * 100.0 / 65536.0);
-    OwnerSay( (string)memory + "% memory free ("+(string)freemem+" Byte)." );
 }
 
 // Returns true if we should override the current animation
@@ -693,13 +627,59 @@ loadNoteCard() {
         curWalkAnim = EMPTY;
         curGsitAnim = EMPTY;
     
-        llMessageLinked(LINK_SET, 0, "LOAD_NC|" + notecardName, NULL_KEY);
+	    OwnerSay( "Loading AO notecard '" + notecardName + "'..." );
+	    counter = 0;
+	    notecardIndex = 0;
+	    notecardLineKey = llGetNotecardLine( notecardName, notecardIndex );
+    }
+}
+
+checkAnimInInventory( string _csvAnims )
+{
+    list anims = llCSV2List( _csvAnims );
+    integer i;
+    for( i=0; i<llGetListLength(anims); i++ )
+    {
+	    if ( llGetInventoryType( llList2String(anims,i) ) != INVENTORY_ANIMATION )
+	        OwnerSay( "Warning: Couldn't find animation '" + llList2String(anims,i) + "' in inventory." );
     }
 }
 
 // Stop loading notecard
-endNotecardLoad()
+endNotecardLoad(integer success)
 {
+    if(success)
+    {
+        OwnerSay((string)counter + " animation entries found in AO notecard.");
+
+        // Do we have a walking animation?
+        if ( llList2String(overrides, walkingIndex) != EMPTY ) {
+             haveWalkingAnim = TRUE;
+        }
+        // Reset stand, walk, sit and ground-sit anims to first entry
+        curStandIndex = 0;
+        numStands = llGetListLength( llParseString2List(llList2String(overrides, standingIndex), 
+                                     [SEPARATOR], []) );
+                                         
+        numTyping = llGetListLength( llParseString2List(llList2String(overrides, typingIndex), 
+                                     [SEPARATOR], []) );
+
+        curStandAnim = findMultiAnim( standingIndex, 0 );
+        curWalkAnim = findMultiAnim( walkingIndex, 0 );
+        curSitAnim = findMultiAnim( sittingIndex, 0 );
+        curGsitAnim = findMultiAnim( sitgroundIndex, 0 );
+
+        // Clear out the currently playing anim so we play the new one on the next cycle
+        startNewAnimation( EMPTY, noAnimIndex, lastAnimState );
+        lastAnim = EMPTY;
+        lastAnimSet = EMPTY;
+        lastAnimIndex = noAnimIndex;
+        lastAnimState = EMPTY;
+
+        OwnerSay( "Finished reading AO notecard '" + notecardName + "'." );
+        MessageMenuRememberAO(notecardName);
+        }
+
     loadInProgress = FALSE;
     notecardName = EMPTY;
 
@@ -721,14 +701,6 @@ initialize() {
     lastAnimIndex = noAnimIndex;
     lastAnimState = EMPTY;
     gotPermission = FALSE;
-
-    // Create new listener, and turn it off
-    if ( listenHandle )
-        llListenRemove( listenHandle );
-    listenHandle = llListen( listenChannel, EMPTY, Owner, EMPTY );
-    llListenControl( listenHandle, FALSE );
-
-    printFreeMemory();
 }
 
 integer chatMessageOn = TRUE;
@@ -748,16 +720,7 @@ default {
 
         Owner = llGetOwner();
 
-        // Just a precaution, this shouldn't be on after a reset
-        if ( listenHandle )
-            llListenRemove( listenHandle );
-
-        // Generate the channel from the owner UUID.
-        listenChannel = ( 1 + (integer)( "0xF" + llGetSubString( llGetOwner(), 0, 6) ) );
-
-        listenHandle = llListen( listenChannel, EMPTY, Owner, EMPTY );
-
-        if ( llGetAttached() )
+		if ( llGetAttached() )
             llRequestPermissions( llGetOwner(), PERMISSION_TRIGGER_ANIMATION|PERMISSION_TAKE_CONTROLS );
         // populate override list with blanks
         overrides = [];
@@ -766,15 +729,12 @@ default {
         }
         randomStands = FALSE;
         initialize();
-        notecardName = defaultNoteCard;
-        loadInProgress = TRUE;
-        loadNoteCard();
-
-        // turn off the auto-stop anim hack
-        if ( autoStopTime == 0 )
-            autoStop = [];
 
         llResetTime();
+        
+		// Clear the remove access pin so that scripts can NOT be overwritten normally...
+		//  This is the LAST script to get updated via updates - so good to do here!
+		llSetRemoteScriptAccessPin(0);        
     }
 
     on_rez( integer _code ) {
@@ -796,35 +756,41 @@ default {
     }
 
     link_message( integer _sender, integer _num, string _message, key _id) {
-        
+    
+		// Optimize for dropping messages very quickly - so not a lot of lag during useless message handling
+		//  think of this as an optimized get out of here quickly check.
+		if (-1 == llListFindList([Define_AOLINKID, Define_AOSELECTLINKID, 0], [_num]))
+		{
+		        return; // Not our message - poof - go away quickly
+		}
+
         // Coming from an interface script
-        if ( _message == "ZHAO_RESET" ) {
-            OwnerSay( "Resetting..." );
-            
+        if ((_num == 0) && ( _message == "RESET" )) {
             
             if(gotPermission)
             {
-                
                 if ( lastAnim != EMPTY )
                     stopAnimationList( lastAnim );
                 if ( curTypingAnim != EMPTY )
                 stopAnimationList(curTypingAnim);
             }
-            
-            
-            
             llResetScript();
+           	return;	// Can't get here - but makes me feel better
+        }
         
-        } else if ( _message == "ZHAO_AOON" ) {
+        // Filter out ALL messages except for our designated number
+        if (Define_AOLINKID == _num)
+        {
+        if ( _message == "ZHAO_AOON" ) {
             // AO On
-            OwnerSay("ON");
             llSetTimerEvent( timerEventLength );
             animOverrideOn = TRUE;
             checkAndOverride();
+            return;
         
-        } else if ( _message == "ZHAO_AOOFF" ) {
+        }
+        if ( _message == "ZHAO_AOOFF" ) {
             //AO OFF
-            OwnerSay("OFF");
             llSetTimerEvent( 0.0 );
             animOverrideOn = FALSE;
             startNewAnimation( EMPTY, noAnimIndex, lastAnimState );
@@ -832,88 +798,109 @@ default {
             lastAnimSet = EMPTY;
             lastAnimIndex = noAnimIndex;
             lastAnimState = EMPTY;
+            // There is NO release of permissions... the API is busted and the only way is to reset and we don't want to do that here... we'd forget the notecard...
+            return;
         }
-        else if ( _message == "CHAT_ON" )
+        if ( _message == "CHAT_ON" ) {
             chatMessageOn = TRUE;
-        else if ( _message == "CHAT_OFF" )
+            return;
+        }
+        if ( _message == "CHAT_OFF" ) {
             chatMessageOn = FALSE;
-        else if ( _message == "ZHAO_STANDON" ) {
+            return;
+        }
+        if ( _message == "ZHAO_STANDON" ) {
             // Turning on sit override
             standOverride = TRUE;
             OwnerSay( "Stand AO On" );
             if ( lastAnimState == "Standing" )
                 startNewAnimation( curStandAnim, standingIndex, lastAnimState );
-        
-        } else if ( _message == "ZHAO_STANDOFF" ) {
+            return;
+        }
+        if ( _message == "ZHAO_STANDOFF" ) {
             // Turning off sit override
             standOverride = FALSE;
             OwnerSay( "Stand AO Off" );
             if ( lastAnimState == "Standing" )
                 startNewAnimation( EMPTY, noAnimIndex, lastAnimState );
-        
-        } else if ( _message == "ZHAO_SITON" ) {
+        	return;
+        }
+        if ( _message == "ZHAO_SITON" ) {
             // Turning on sit override
             sitOverride = TRUE;
             OwnerSay( S_SIT + "On" );
             if ( lastAnimState == "Sitting" )
                 startNewAnimation( curSitAnim, sittingIndex, lastAnimState );
-        
-        } else if ( _message == "ZHAO_SITOFF" ) {
+        	return;
+        }
+        if ( _message == "ZHAO_SITOFF" ) {
             // Turning off sit override
             sitOverride = FALSE;
             OwnerSay( S_SIT + "Off" );
             if ( lastAnimState == "Sitting" )
                 startNewAnimation( EMPTY, noAnimIndex, lastAnimState );
-        
-        } else if ( _message == "ZHAO_SITANYWHERE_ON" ) {
+			return;        
+        }
+        if ( _message == "ZHAO_SITANYWHERE_ON" ) {
             // Turning on sit anywhre mod
             sitAnywhereOn = TRUE;
             OwnerSay( S_SIT_AW + "On" );
             if ( lastAnimState == "Standing" )
                 startNewAnimation( curGsitAnim, sitgroundIndex, lastAnimState );
-        
-        } else if ( _message == "ZHAO_SITANYWHERE_OFF" ) {
+        	return;
+        }
+        if ( _message == "ZHAO_SITANYWHERE_OFF" ) {
             // Turning off sit anywhere mod
             sitAnywhereOn = FALSE;
             OwnerSay( S_SIT_AW + "Off" );
             if ( lastAnimState == "Standing" )
                 startNewAnimation( curStandAnim, standingIndex, lastAnimState );
-        
-        } else if ( _message == "ZHAO_TYPEAO_ON" ) {
+			return;        
+        }
+        if ( _message == "ZHAO_TYPEAO_ON" ) {
             // Turning on typing override
             typingOverrideOn = TRUE;
             OwnerSay( S_TYPING + "On" );                    
             typingStatus = FALSE;
-            
-        } else if ( _message == "ZHAO_TYPEAO_OFF" ) {
+        	return;    
+        }
+        if ( _message == "ZHAO_TYPEAO_OFF" ) {
             // Turning off typing override
             typingOverrideOn = FALSE;
             OwnerSay( S_TYPING + "Off" );
             if ( typingStatus && !typingKill ) {
                 stopAnimationList(curTypingAnim);
                 typingStatus = FALSE;
-            }   
-        } else if ( _message == "ZHAO_TYPEKILL_ON" ) {
+            }
+            return;   
+        }
+        if ( _message == "ZHAO_TYPEKILL_ON" ) {
             // Turning on Typing killer
             typingKill = TRUE;
             OwnerSay( S_TKILL_ON );        
             typingStatus = FALSE;
-        } else if ( _message == "ZHAO_TYPEKILL_OFF" ) {
+            return;
+        }
+        if ( _message == "ZHAO_TYPEKILL_OFF" ) {
             // Turning off Typing killer
             typingKill = FALSE;
             OwnerSay( S_TKILL_OFF );
             typingStatus = FALSE;
-        } else if ( _message == "ZHAO_RANDOMSTANDS" ) {
+            return;
+        }
+        if ( _message == "ZHAO_RANDOMSTANDS" ) {
             // Cycling to next stand - sequential or random
             randomStands = TRUE;
             OwnerSay( "Stand cycling: Random" );
-        
-        } else if ( _message == "ZHAO_SEQUENTIALSTANDS" ) {
+        	return;
+        }
+        if ( _message == "ZHAO_SEQUENTIALSTANDS" ) {
             // Cycling to next stand - sequential or random
             randomStands = FALSE;
             OwnerSay( "Stand cycling: Sequential" );
-        
-        } else if ( _message == "ZHAO_SETTINGS" ) {
+            return;
+        }
+        if ( _message == "ZHAO_SETTINGS" ) {
             // Print settings
             if ( sitOverride ) {
                 OwnerSay( S_SIT + "On" );
@@ -941,18 +928,23 @@ default {
                 OwnerSay( "Stand cycling: Sequential" );
             }
             OwnerSay( "Stand cycle time: " + (string)dialogStandTime + " seconds" );
-
-        } else if ( _message == "ZHAO_NEXTSTAND" ) {
+			return;
+        }
+        if ( _message == "ZHAO_NEXTSTAND" ) {
             // Cycling to next stand - sequential or random. This is from UI, so we
             // want feedback
             doNextStand( TRUE );
+            return;
         
-        } else if ( llGetSubString(_message, 0, 14) == "ZHAO_STANDTIME|" ) {
+        }
+        if ( llGetSubString(_message, 0, 14) == "ZHAO_STANDTIME|" ) {
             // Stand time change
             dialogStandTime = (integer)llGetSubString(_message, 15, -1);
             OwnerSay( "Stand cycle time: " + (string)dialogStandTime + " seconds" );
+            return;
         
-        } else if ( llGetSubString(_message, 0, 9) == "ZHAO_LOAD|" ) {
+        }
+        if ( llGetSubString(_message, 0, 9) == "ZHAO_LOAD|" ) {
             // Can't load while we're in the middle of a load
             if ( loadInProgress == TRUE ) {
                 OwnerSay( "Cannot load new notecard, still reading notecard '" + notecardName + "'" );
@@ -961,103 +953,77 @@ default {
             // Notecard menu
             notecardName = llGetSubString(_message, 10, -1);
             loadNoteCard();
+            return;
 
-        } else if ( _message == "ZHAO_SITS" ) {
+        }
+        if ( _message == "ZHAO_SITS" ) {
             // Selecting new sit anim
 
             // Move these to a common function
             doMultiAnimMenu( sittingIndex, "Sitting", curSitAnim );
 
             listenState = 1;
+            return;
 
-        } else if ( _message == "ZHAO_WALKS" ) {
+        }
+        if ( _message == "ZHAO_WALKS" ) {
             // Same thing for the walk
 
             // Move these to a common function
             doMultiAnimMenu( walkingIndex, "Walking", curWalkAnim );
 
             listenState = 2;
+            return;
 
-        } else if ( _message == "ZHAO_GROUNDSITS" ) {
+        }
+        if ( _message == "ZHAO_GROUNDSITS" ) {
             // And the ground sit
 
             // Move these to a common function
             doMultiAnimMenu( sitgroundIndex, "Sitting On Ground", curGsitAnim );
 
             listenState = 3;
+            return;
         } 
         
+        }	// End if we received message on the correct number (filtered for lag reduction)
+        
+        // Handle the case of a list of animations from the pretty gui (instead of a dialog box)
+        if (Define_AOSELECTLINKID == _num)
+        {
+        	// Constrained menus mean that the user can only choose what is on them - no scrolling and not outside the range...
+        	list p = llParseString2List(_message, ["|"], []);
 
-        //Notecard read, we get the string sent over and do some tests
-        else if ( llGetSubString(_message, 0, 11) == "END_NC_LOAD|" ) {
-            //if loading was a success...
-            if(_num) {
-                overrides = [];
-                //convert overrides back to a list
-                overrides = llCSV2List(llGetSubString(_message, 12, llStringLength(_message) - 1));
-                // Do we have a walking animation?
-                if ( llList2String(overrides, walkingIndex) != EMPTY ) {
-                     haveWalkingAnim = TRUE;
-                }
-                // Reset stand, walk, sit and ground-sit anims to first entry
-                curStandIndex = 0;
-                numStands = llGetListLength( llParseString2List(llList2String(overrides, standingIndex), 
-                                             [SEPARATOR], []) );
-                                             
-                numTyping = llGetListLength( llParseString2List(llList2String(overrides, typingIndex), 
-                                             [SEPARATOR], []) );
-    
-                curStandAnim = findMultiAnim( standingIndex, 0 );
-                curWalkAnim = findMultiAnim( walkingIndex, 0 );
-                curSitAnim = findMultiAnim( sittingIndex, 0 );
-                curGsitAnim = findMultiAnim( sitgroundIndex, 0 );
-    
-                // Clear out the currently playing anim so we play the new one on the next cycle
-                startNewAnimation( EMPTY, noAnimIndex, lastAnimState );
-                lastAnim = EMPTY;
-                lastAnimSet = EMPTY;
-                lastAnimIndex = noAnimIndex;
-                lastAnimState = EMPTY;
-    
-                OwnerSay( "Finished reading notecard '" + notecardName + "'." );
-                printFreeMemory();    
-            }
-            endNotecardLoad();                
-        }
-    }
-
-    listen( integer _channel, string _name, key _id, string _message) {
-        // Turn listen off. We turn it on again if we need to present 
-        // another menu
-        llListenControl(listenHandle, FALSE);
-
-        if ( listenState == 1 ) {
-            // Dialog enhancement - Fennec Wind
-            // Note that this is within one 'overrides' entry
-            curSitAnim = findMultiAnim( sittingIndex, (integer)_message - 1 );
-            if ( lastAnimState == "Sitting" ) {
-                startNewAnimation( curSitAnim, sittingIndex, lastAnimState );
-            }
-           OwnerSay( "New sitting animation: " + curSitAnim );
-
-        } else if ( listenState == 2 ) {
-            // Dialog enhancement - Fennec Wind
-            // Note that this is within one 'overrides' entry
-            curWalkAnim = findMultiAnim( walkingIndex, (integer)_message - 1 );
-            if ( lastAnimState == "Walking" ) {
-                startNewAnimation( curWalkAnim, walkingIndex, lastAnimState );
-            }
-            OwnerSay( "New walking animation: " + curWalkAnim );
-
-        } else if ( listenState == 3 ) {
-            // Dialog enhancement - Fennec Wind
-            // Note that this is within one 'overrides' entry
-            curGsitAnim = findMultiAnim( sitgroundIndex, (integer)_message - 1 );
-            // Lowercase 'on' - that's the anim name in SL
-            if ( lastAnimState == "Sitting on Ground" || ( lastAnimState == "Standing" && sitAnywhereOn ) ) {
-                startNewAnimation( curGsitAnim, sitgroundIndex, lastAnimState );
-            }
-            OwnerSay( "New sitting on ground animation: " + curGsitAnim );
+	        if ( listenState == 1 ) {
+	            // Dialog enhancement - Fennec Wind
+	            // Note that this is within one 'overrides' entry
+	            curSitAnim = findMultiAnim( sittingIndex, llList2Integer(p,1) );
+	            if ( lastAnimState == "Sitting" ) {
+	                startNewAnimation( curSitAnim, sittingIndex, lastAnimState );
+	            }
+	           OwnerSay( "New sitting animation: " + curSitAnim );
+	
+	        } else if ( listenState == 2 ) {
+	            // Dialog enhancement - Fennec Wind
+	            // Note that this is within one 'overrides' entry
+	            curWalkAnim = findMultiAnim( walkingIndex, llList2Integer(p,1) );
+	            if ( lastAnimState == "Walking" ) {
+	                startNewAnimation( curWalkAnim, walkingIndex, lastAnimState );
+	            }
+	            OwnerSay( "New walking animation: " + curWalkAnim );
+	
+	        } else if ( listenState == 3 ) {
+	            // Dialog enhancement - Fennec Wind
+	            // Note that this is within one 'overrides' entry
+	            curGsitAnim = findMultiAnim( sitgroundIndex,llList2Integer(p,1) );
+	            // Lowercase 'on' - that's the anim name in SL
+	            if ( lastAnimState == "Sitting on Ground" || ( lastAnimState == "Standing" && sitAnywhereOn ) ) {
+	                startNewAnimation( curGsitAnim, sitgroundIndex, lastAnimState );
+	            }
+	            OwnerSay( "New sitting on ground animation: " + curGsitAnim );
+	        }
+	        
+	        MessageGoToMenu(Define_AOMENULINKID);		// Return back to the standard AO menu
         }
     }
 
@@ -1121,5 +1087,64 @@ default {
                     doNextStand( FALSE );
             }
         }
+    }
+
+    dataserver( key _query_id, string _data ) 
+    {
+        if ( _query_id != notecardLineKey )
+        {
+            return;		// If it's not our data - get out of here... this caused the load of another notecard to clear the AO settings I think...
+        }
+        if ( _data == EOF )
+        {
+            endNotecardLoad(TRUE);
+            return;
+        }
+        if (( _data == EMPTY ) || ( llGetSubString(_data, 0, 0) == "#" ))
+        {
+            notecardLineKey = llGetNotecardLine( notecardName, ++notecardIndex );
+            return;
+        }
+
+        integer i;
+        integer found = FALSE;
+        for ( i=0; (i<numOverrides) && !found; i++ )
+        {
+            string token = llList2String( tokens, i );          
+            if (( token != EMPTY ) && ( llGetSubString( _data, 0, llStringLength(token) - 1 ) == token ))
+            {
+                found = TRUE;
+                if ( _data != token )
+                {                    
+                    string animPart = llGetSubString( _data, llStringLength(token), -1 );
+                    list anims2Add = llParseString2List( animPart, [SEPARATOR], [] );
+                    integer j;
+                    for ( j=0; j<llGetListLength(anims2Add); j++ )
+                    {
+						string newAnimName = llList2String(anims2Add,j);
+                        checkAnimInInventory( newAnimName );
+                        ++counter;
+                    }
+					string s =  llList2String(overrides, i);
+					if (s != EMPTY)
+					{
+                    	list currentAnimsList = llParseString2List(s, [SEPARATOR], [] );
+                    	currentAnimsList = (currentAnimsList=[]) + currentAnimsList + anims2Add;
+                    	overrides = llListReplaceList( overrides, [llDumpList2String(currentAnimsList, SEPARATOR)], i, i );
+                    }
+                    else
+                        overrides = llListReplaceList( overrides, [animPart], i, i );                       
+                }
+            }
+        }
+        if ( !found )
+        {
+            OwnerSay( "Could not recognize token on line " + (string)notecardIndex + ": " + _data + ". " + TRYAGAIN );
+            endNotecardLoad(FALSE);
+            return;
+        }
+
+        notecardLineKey = llGetNotecardLine( notecardName, ++notecardIndex );
+        return;
     }
 }
