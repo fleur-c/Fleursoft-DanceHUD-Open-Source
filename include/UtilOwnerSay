@@ -1,8 +1,10 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
 #ifndef UTILOWNERSAY
 #define UTILOWNERSAY
 
-OwnerSay(string msg, list params)
+OwnerSay(string msgToSend, list paramsForOwnerSay)
 {
-	llMessageLinked(LINK_THIS, Define_LANGUAGELINKID, msg, (key) llDumpList2String(params, "|"));
+    llMessageLinked(LINK_THIS, Define_LANGUAGELINKID, msgToSend, llDumpList2String(paramsForOwnerSay, "|"));
 }
 #endif

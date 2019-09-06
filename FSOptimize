@@ -1,0 +1,1468 @@
+#!/usr/bin/perl
+# This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+#
+# Script to reduce a script to it's minimum number of characters
+# - Spaces are required only after a variable is declared (integer x)
+#   and within a string. Otherwise it can be dropped.
+# - End of line characters can be dropped too - don't need them mostly.
+# - Drop ;'s that are right before a } - not needed then...
+# - Let's try making lines 254 characters or less - not really necessary at all.
+# - try to concatenate static strings together(i.e. "this"+"test" should become "thistest")
+# - break each start of a function to the start of a line - this is just
+#   to make things a bit prettier for me when I look at the shortened script.
+# - We cheat and read all of the input and make ONE BIG STRING and parse it...
+#   makes end of line not matter at all. :)
+# - Now we begin the variable optimization - the idea is that all of one type
+#   of global variables can be on one line. All ints can be one line, floats another.
+#   This removes more type definition usage strings throughout the script.
+#   Doing global variable first... Not doing local variables - assume they are
+#   reasonablely optimized. :)
+# - Next we do function name substition for all global functions. Same kind of
+#   naming scheme as variables - but UPPERCASE and only global functions.
+# - Next we do more string optimizations. There are a lot of "string"+(string)integer+"string"
+#   so since they are constants - we can make that into a non-calculated string.
+#   Should be a simple "stringintegerstring" - no string manipulation is better :)
+# - String gathering additions - get all of the strings out of the script and replace
+#   them all with unique and boring tokens. Do the variable/local optimizations
+#   and at the end put the strings back? Strings with more than one reference
+#   will become global variables with new names instead of inline strings.
+# - Constant lists are optimized - if used more than once inline it will be
+#   changed to a global.
+#
+# Several possible optimizations NOT being done:
+# - Expression improvements - some routines do the same thing over and over
+#   We could optimize for it - or simply change the scripts to do it better.
+# - Optimize usage of llXXX functions - instead of all over - we could gather
+#   up an instance that is used a lot and have a function that we call with a
+#   short name... this would add CPU overhead BUT reduces script length overall.
+#   Actually increases the generated code as we have our call then lsl call.
+# - Another odd failure here - vector checked to be equal to a function call
+#   leads to a <0.0,0.0,0.0>==something - which lslint can't handle. Change the
+#   order of the if so that it is something==<0.0,0.0,0.0> - and it parses happily.
+#   Ok - interesting bug - but - not fixing anything like it here... just fixed
+#   lsl code instead.
+# - Key initializations to NULL_KEY should be removed... but aren't :(
+#
+# We're using standard in and standard out :) Easy as a pipe command then...
+#
+# Several assumptions:
+# 1) We are only doing this to an input file once - so we know that the
+#    start of the line could be a variable declaration and no other places.
+# 2) Absorb blank lines - they don't matter :)
+# 3) Comments are already gone - we'll watch for them anyways and remove them
+#
+# Weird details... what shows up in lsl that works... and shouldn't
+# 1) Variable name: 'something   i.e. string 'something = "foo";  - yep ' works... weird
+#    Weird characters that work in variable names: ' $ # and ` (we already knew about _)
+#    Example: string `'#$a="1234";   string xyzzy=`'#$a;   llOwnerSay(`'#$a);
+#    I suspect that because lsl doesn't define these as invalid - that the work... but it's weird.
+#    We're gonna use this for making up the unique string placeholders.
+
+my $script = "";        # Script as we read it - all of the lines in one BIG string
+my $newScript = "";     # The new script as each phase generates it
+
+my $stringTokenChar = '`';  # Used to indicate a string token `1` for string token # 1.
+
+my %strings = ();       # Storage space for the string values we find in the script
+                        # key = string saved, value = ` unique# `|usage-count (Example: `1`|1)
+my $stringsNextToken = 0;   # Index for next entry in string table
+
+my $variableTokenChar = "\'";  # Used to indicate a variable name token '1' for variable name token # 1.
+my %variables = ();       # Storage space for the variable name values we find in the script
+                        # key = variable name saved, value = ` unique# `|usage-count (Example: `1`|1)
+my $variableNextToken = 0;   # Index for next entry in variables table
+
+my $routineTokenChar = "#";  # Used to indicate a routine name token '1' for variable name token # 1.
+my %routines = ();       # Storage space for the routine name values we find in the script
+                        # key = routine name saved, value = ` unique# `|usage-count (Example: #1#|1)
+my $routineNextToken = 0;   # Index for next entry in routine table
+my $routineLLTokenChar = '@';  # Used to indicate a routine name token '1' for variable name token # 1.
+my %routinesll = ();       # Storage space for the LL routine name values we find in the script
+                        # key = LL routine name saved, value = ` unique# `|usage-count (Example: $1$|1)
+my $routineLLNextToken = 0;   # Index for next entry in LL routine;s table
+my $dbgStrings = 0;     # Debug flag for remembering/handling strings
+                        # Log levels: 1=entry/exit, 2=summary of strings when done, 3=each string as saved
+my $dbgSpaces = 0;      # Debug flag for space removal
+                        # Log levels: 1=entry/exit, 2=found keywords/types
+my $dbgConstNums = 0;   # Debug level for converting (string)const-numbers to "strings" and putting them into the string table :)
+                        # Log level: 1=entry/exit, 2=count of constant numbers converted to strings
+my $dbgStringGrouping = 0;  # Debug level for grouping together multiple concatenated string constants
+                            # Log level: 1=entry/exit, 2=count of group strings
+my $dbgParseTokens = 0; # Debug level for how we parse tokens in phase 5
+                        # Log level: 1=entry/exit, 2=basic line parsing, 3=show token parsing
+my $dbgGlobalLists = 0; # Debug level for considering const lists convertion to globals
+my $dbgFinalSwaps = 0;  # Debug levels for final replacement of tokens back to variables/routines/strings
+
+# Generic hash handling routines - parameters determine the hash and the token delimiter
+#
+# The idea being that there are different hashs for different things - we happen to have
+# strings saved/updated first - then added variable names and routine names. The processing
+# is identical - except we use different has tables and different token delimiters.
+# Strings use: `
+# Variable names use: '
+# Routine names use: #
+sub PrintGenericTable($$)
+{
+    my $hashRef = shift;
+    my $token = shift;
+    foreach my $key (keys %$hashRef)
+    {
+        # print "Key:$key (length " . length($key) . ")  Value: " . $hashRef->{$key} . " (length " . length($hashRef->{$key}). ")\n";
+        my ($token,$count) = split(':', $hashRef->{$key});
+        print "$count $key $token\n";
+    }
+}
+
+# Save a something (string, variable name, routine name) into a hash and return a unique token representing it.
+# Also bump the count of usage when we have a matching something (string, variable name, routine name).
+#
+# Note: 4th parameter we reference through the the reference - so we get the appropriate
+# counter for the generic we are handling. This keeps the tokens within a range for each
+# type we support. Strings start at 1 and go up, then variables start 1 and go up... and so
+# do the routine names. Looks weird - but perl passes everything as a reference so we are
+# just leveraging the passed reference here. Odd - but works :)
+sub SaveAGeneric($$$$)
+{
+    my $something = shift;
+    my $hashRef = shift;
+    my $tokenEdge = shift;
+
+    my $token = $tokenEdge . $_[0] . $tokenEdge;     # Unique special token for each generic
+    my $count = 1;
+
+    if (defined($hashRef->{$something}))
+    {
+        ($token,$count) = split ':', $hashRef->{$something};
+        $count++;
+    }
+    else
+    {
+            $_[0] += 1;
+    }
+
+    $hashRef->{$something} = $token . ':' . $count;
+    print "Set $token:$count at $something\n" if ($dbgStrings >= 3);
+
+    return $token;
+}
+
+# DecreaseGenericUsageCount
+# Decrease the usage count of a given generic
+sub DecreaseGenericUsageCount($$)
+{
+    my $something = shift;
+    my $hashRef = shift;
+    my $token = "";
+    my $count;
+
+    if (defined($hashRef->{$something}))
+    {
+        ($token,$count) = split ':', $hashRef->{$something};
+        $count--;
+        if ($count > 0)
+        {
+            print "Token $token usage count decreased to %count.\n" if ($dbgStrings >= 4);
+            $hashRef->{$something} = $token . ':' . $count;
+        }
+        else
+        {
+            print "Removed token $token because usage count is zero.\n" if ($dbgStrings >= 4);
+            delete $hashRef->{$something};
+        }
+    }
+
+    return $token;
+}
+
+# Find a string token and tell us it's usage count and the string value
+# Or return a count of -1 (not found) and string of "" (not found)
+sub FindGenericToken($$)
+{
+    my $searchToken = shift;
+    my $hashRef = shift;
+    my $string = "";
+    my $count;
+
+    foreach my $key (keys %$hashRef)
+    {
+        ($token,$count) = split ':', $hashRef->{$key};
+        if ($searchToken eq $token)
+        {
+            return ($key,$count);
+        }
+    }
+
+    return ("",-1);
+}
+
+
+# Call the generic routines to support string values :)
+sub PrintStringsTable()
+{
+    print "PrintStringsTable:\n";
+    PrintGenericTable(\%strings, $stringTokenChar);
+    print "End of strings table\n";
+}
+sub SaveAString($)
+{
+    my $input = shift;
+    print "Enter: SaveAString($input)\n" if ($dbgStrings >= 3);
+
+    $token = SaveAGeneric($input, \%strings, $stringTokenChar, $stringsNextToken);
+
+    print "Exit: SaveAString() - returning:$token\n" if ($dbgStrings >= 3);
+    return $token;
+}
+sub DecreaseStringUsageCount($)
+{
+    my $input = shift;
+
+    print "Enter: DecreaseStringUsageCount($input)\n" if ($dbgStrings >= 3);
+    my $token = DecreaseGenericUsageCount($input, \%strings);
+    print "Exit: DecreaseStringUsageCount() - returning:$token\n" if ($dbgStrings >= 3);
+    return $token;
+}
+sub FindStringToken($)
+{
+    my $searchToken = shift;
+
+    print "Enter: FindStringToken($searchToken)\n" if ($dbgStrings >= 3);
+    my ($string,$count) = FindGenericToken($searchToken, \%strings);
+
+    print "Exit: FindStringToken($searchToken): Results string:$string  count:$count\n" if ($dbgStrings >= 3);
+    return ($string,$count);
+}
+
+
+# Call the generic routines to support variable names :)
+sub PrintVariablesTable()
+{
+    print "PrintVariablesTable:\n";
+    PrintGenericTable(\%variables, $variableTokenChar);
+    print "End of variables table\n";
+}
+sub SaveAVariable($)
+{
+    my $input = shift;
+    print "Enter: SaveAVariable($input)\n" if ($dbgStrings >= 3);
+
+    $token = SaveAGeneric($input, \%variables, $variableTokenChar, $variableNextToken);
+
+    print "Exit: SaveAVariable() - returning:$token\n" if ($dbgStrings >= 3);
+    return $token;
+}
+sub DecreaseVariableUsageCount($)
+{
+    my $input = shift;
+
+    print "Enter: DecreaseVariableUsageCount($input)\n" if ($dbgStrings >= 3);
+    my $token = DecreaseGenericUsageCount($input, \%variables);
+    print "Exit: DecreaseVariableUsageCount() - returning:$token\n" if ($dbgStrings >= 3);
+    return $token;
+}
+sub FindVariableToken($)
+{
+    my $searchToken = shift;
+
+    print "Enter: FindVariableToken($searchToken)\n" if ($dbgStrings >= 3);
+    my ($var,$count) = FindGenericToken($searchToken, \%variables);
+
+    print "Exit: FindVariableToken($searchToken): Results variable:$var  count:$count\n" if ($dbgStrings >= 3);
+    return ($var,$count);
+}
+
+# For finding variables that are possibly nested - we needed to do more.
+# The trick used was to have variables keys as a variable name and the block depth.
+# My code doesn't reuse locals - so only paying attention to block depth is good enough
+# but someone who does reuse variable names in multiple levels of nesting... and matching
+# block levels... they are on their own. I'm not attempting to get perfect variable nesting
+# rules straight with this simple minded parser.
+#
+# Example of whacky code for variable name reuse:
+#
+# doMore(integer p) { llOwnerSay("Param value:" + (string)p); }
+# integer a = 1;
+# Something(integer a)
+# {
+#      B();  doMore(a);
+#      integer a=3; doMore(a);
+#      C();
+#      { D(); integer a = 4; E(); doMore(a); { integer a = 5; doMore(a); } doMore(a);}
+#      { F(); integer a = 6; G(); doMore(a); }
+#      doMore(a);
+# }
+# Another()
+# { doMore(a); Something(2); }
+# Output: 1   2   3   4   5   4   6   3
+# 
+# There are 6 levels of variable 'a' here:
+#  Block |
+#  depth | Variable
+#  ------+--------
+#     0  | a = 1 - global level
+#     1  | Parameter a
+#     2  | local a = 3
+#     3  | local a = 4
+#     4  | local a = 5
+#     3  | local a = 6
+# Searches at different places:
+#   B - block depth 2 - gets parameter a
+#   C - block depth 2 - should get local a=3
+#   D - block depth 3 - should get local a=3
+#   E - block depth 3 - should get local a=4
+#   F - block depth 3 - should find a=3 - but we will find local a=4 (which is ok by me)
+#   G - block depth 3 - should find a=6 - could find a=4 or a=6 - depends on which appears first
+#                       in my variable hash table - ambigous - which is still expected for me.
+#
+# Returns: (Token, use count, matching block #)  or ("", -1, -1)
+sub FindVariableLevel($$)
+{
+    my $searchVar = shift;
+    my $blockDepth = shift;
+
+    print "Enter: FindVariableLevel($searchVar  $blockDepth)\n" if ($dbgStrings >= 4);
+    my $token;
+    my $count;
+
+    # Now we do care about the block level - which means we
+    #  are searching for a matching key:block# (or less).
+    for (my $i = $blockDepth; $i >= 0; $i--)
+    {
+        my $lookFor = "$searchVar:$i";
+        foreach my $key (keys %variables)
+        {
+            print "Checking $key vs $lookFor\n" if ($dbgStrings >= 5);
+            if ($key eq $lookFor)
+            {
+                ($token,$count) = split ':', $variables{$key};
+                print "Exit: FindVariableLevel($searchToken): Found variable $searchVar at level $i\n" if ($dbgStrings >= 4);
+                return ($token,$count,$i);
+            }
+        }
+    }
+
+    print "Exit: FindVariableLevel($searchVar  $blockDepth): Failed to find variable $searchVar and level $blockLevel\n"  if ($dbgStrings >= 4);
+    return ("",-1,-1);
+}
+
+
+# Call the generic routines to support routine names :)
+sub PrintRoutinesTable()
+{
+    print "PrintRoutinesTable:\n";
+    PrintGenericTable(\%routines, $routineTokenChar);
+    print "End of routine table\n";
+}
+sub SaveARoutine($)
+{
+    my $input = shift;
+    print "Enter: SaveARoutine($input)\n" if ($dbgStrings >= 3);
+
+    $token = SaveAGeneric($input, \%routines, $routineTokenChar, $routineNextToken);
+
+    print "Exit: SaveARoutine() - returning:$token\n" if ($dbgStrings >= 3);
+    return $token;
+}
+sub DecreaseRoutineUsageCount($)
+{
+    my $input = shift;
+
+    print "Enter: DecreaseRoutineUsageCount($input)\n" if ($dbgStrings >= 3);
+    my $token = DecreaseGenericUsageCount($input, \%routines);
+    print "Exit: DecreaseRoutinesUsageCount() - returning:$token\n" if ($dbgStrings >= 3);
+    return $token;
+}
+sub FindRoutineToken($)
+{
+    my $searchToken = shift;
+
+    print "Enter: FindRoutineToken($searchToken)\n" if ($dbgStrings >= 3);
+    my ($routine,$count) = FindGenericToken($searchToken, \%routines);
+
+    print "Exit: FindRoutineToken($searchToken): Results routine:$var  count:$count\n" if ($dbgStrings >= 3);
+    return ($routine,$count);
+}
+
+# Call the LL routines to support LL routine names :)
+# The idea being that if we reuse a given LL routine a lot - then we
+# may decide that it's better to have a small subroutine generated for it.
+#
+# The idea being that instead of lots of instances of llSomethingLongAsAName()
+# we can save some character space with a short routine name - add a routine that
+# calls the llSomethingLongAsAName(). There is an extra call overhead - which
+# is negative progress - but overall can save 10 to 20 characters per call in
+# the source which if we only do this for methods called 20 times - we save
+# between 200 and 400 bytes of source code... not horrible... but does cost
+# use CPU time later on. Not a great trade off.
+sub PrintLLRoutinesTable()
+{
+    print "PrintLLRoutinesTable:\n";
+    PrintGenericTable(\%routinesll, $routineLLTokenChar);
+    print "End of LL routine table\n";
+}
+sub SaveALLRoutine($)
+{
+    my $input = shift;
+    print "Enter: SaveALLRoutine($input)\n" if ($dbgStrings >= 3);
+
+    $token = SaveAGeneric($input, \%routinesll, $routineLLTokenChar, $routineLLNextToken);
+
+    print "Exit: SaveALLRoutine() - returning:$token\n" if ($dbgStrings >= 3);
+    return $token;
+}
+sub DecreaseLLRoutineUsageCount($)
+{
+    my $input = shift;
+
+    print "Enter: DecreaseLLRoutineUsageCount($input)\n" if ($dbgStrings >= 3);
+    my $token = DecreaseGenericUsageCount($input, \%routinesll);
+    print "Exit: DecreaseLLRoutinesUsageCount() - returning:$token\n" if ($dbgStrings >= 3);
+    return $token;
+}
+sub FindLLRoutineToken($)
+{
+    my $searchToken = shift;
+
+    print "Enter: FindLLRoutineToken($searchToken)\n" if ($dbgStrings >= 3);
+    my ($routine,$count) = FindGenericToken($searchToken, \%routinesll);
+
+    print "Exit: FindLLRoutineToken($searchToken): Results routine:$var  count:$count\n" if ($dbgStrings >= 3);
+    return ($routine,$count);
+}
+
+
+
+
+# Phase 1: Read all of the input into one big string
+#          Clean up each line - trimming leading/trailing spaces and tabs
+#          Also save all the strings in the script in a hash and replace them
+#            inline with a unique token indicating a string that we saved.
+
+sub Phase01()
+{
+    my $started = 0;        # Flag indicating if we are in the middle of a string or not (i.e. started " found)
+    my $holder = "";        # Temporary holder for strings we find (as we save them)
+    my $line;
+
+    print "Enter: Phase01 - read STDIN, cleanup whitespace, save strings as tokens\n" if ($dbgStrings >= 1);
+
+    # We've already removed the comments with the c preprocessor :)
+    # No reason here to look for comments at all...
+
+    # Extract all of the strings and replace them with unique tokens(`#`)
+    # Count the number of usages of each string - hoping to find the strings
+    # that are used in multiple places and optimize memory by reducing them
+    # from inline refences to a global variable instead.
+    #
+    # Strings can be on multiple lines - it's a weird surprise. So we go looking for
+    # start and end of a string on each line. If we don't find an end... keep going for
+    # the next line till we eventually find an end.
+   while ($line = <STDIN>)
+    {
+        chomp $line;    # Bye bye end of line :)
+        print "Phase01: read line: $line\n" if ($dbgStrings >= 3);
+
+        # If we are in the middle of a string and have a new line...
+        # insert a new line character to the 'string' to remember :)
+        if ($started == 1)
+        {
+            print "Phase01: already in a string - add newline to string holder\n" if ($dbgStrings >= 3);
+            $holder .= "\n";
+        }
+
+        for (my $index = 0; $index < length($line); $index++)
+        {
+            my $char = substr($line,$index,1);
+
+            # Figure out if we are starting or ending a string with "'s
+            if ($char eq '"')
+            {
+                $started ^= 1;    # Toggle one bit on at start, off when done
+
+                if ($started == 0)
+                {
+                    # end of the string... save it and insert a good token in the script...
+                    my $tmp = SaveAString($holder);
+                    print "Phase01: Ended a string at index $index - inserting token $tmp\n" if ($dbgStrings >= 3);
+                    $script .= $tmp;
+                    $holder = "";
+                }
+                else
+                {
+                    print "Phase01: Started a quoted string at index $index\n" if ($dbgStrings >= 3);
+                }
+            }
+            else
+            {
+                if ($started == 1)
+                {
+                    $holder .= $char;
+                }
+                else
+                {
+                    # Let's trim any leading set of spaces/tabs down to just one space
+                    if (($char eq " ") || ($char eq "\t"))
+                    {
+                        print "Phase01: Starting trim at index $index\n" if ($dbgStrings >= 3);
+                        $char = substr($line,$index+1,1);
+                        print "Phase01: checking $char\n" if ($dbgStrings >= 3);
+                        my $skipped = $index+1;
+                        while (($char eq " ") || ($char eq "\t"))
+                        {
+                            $skipped++;
+                            $char = substr($line,$skipped,1);
+                            print "Phase01: checking $char\n" if ($dbgStrings >= 3);
+                        }
+
+                        # if we skipped any characters - back up one character from our end and inject a space
+                        if ($skipped > $index)
+                        {
+                            $index = $skipped-1;
+                        }
+                        print "Phase01: Ended trim at index $index\n" if ($dbgStrings >= 3);
+                        $char = ' ';
+                    };
+                    $script .= $char;
+                };
+            };      #   for each character in the line
+        };          #  End of for loop
+    };              # End of while loop
+
+    print "\nPhase01 script:$script\n" if ($dbgStrings >= 2);
+    PrintStringsTable() if ($dbgStrings >= 2);
+    print "Exit: Phase01\n\n" if ($dbgStrings >= 1);
+}
+
+
+# Phase2 - Remove all of the 'extra' spaces and put all functions on their own lines.
+#          Also cause the 'default{' to be on it's own line and all event handlers
+#          should also be on their own lines. Easy to find all 'functions' this way.
+#        - Change global variables to be on their own line. Currently we have functions
+#          that appear after a set of global variables. Would be good to get the variables
+#          into their own line without any function related to them at all.
+#
+# List of the lsl types and keywords and either they are followed by a space (normal usage)
+# or the character(s) afterwards could be used.
+# Examples: (integer)1.3   return(3);  do(float)1;while(0); (weird)
+#                          return 3;   do{something;}while(0);
+#
+# Make a hash of the keywords that should end in a space, but could end with something else.
+my %lslKeywords;
+$lslKeywords{'float'} = ')';
+$lslKeywords{'integer'} = ')';
+$lslKeywords{'key'} = ')';
+$lslKeywords{'list'} = ')';
+$lslKeywords{'quaternion'} = ')';
+$lslKeywords{'rotation'} = ')';
+$lslKeywords{'string'} = ')';
+$lslKeywords{'vector'} = ')';
+
+$lslKeywords{'return'} = '(';
+$lslKeywords{'jump'} = '';   # No special case - always has a space after
+$lslKeywords{'do'} = '{(';      # Kinda crazy ( case... but it does work...
+$lslKeywords{'else'} = '{';     # Weird case - can have a single statement after an else
+$lslKeywords{'if'} = '{(';      # If can also have a single statement after it - but always has a condition
+
+sub Phase02()
+{
+    print "Enter: Phase02\n" if ($dbgStrings >= 1);
+
+    my $braceCount = 0;     # Count of the number of open '{'s - we decrease for each '}'
+    my $pastDefault = 0;    # Have we gotten past the 'default{' block yet?
+    my $semiCount = 0;      # Count of number of ;'s we have on the current line
+
+    my $len = length($script);
+    for (my $index = 0; $index < $len; $index++)
+    {
+        my $functionEnded = 0;
+        my $char = substr($script,$index,1);
+        my $found = 0;
+
+        # Check for starting character of the various reserved types/keywords
+        foreach my $key (keys %lslKeywords)
+        {
+            print "Checking index $index($char) against " . substr($key,0,1) . "\n" if ($dbgSpaces >=3);
+            if ($char eq substr($key,0,1))
+            {
+                # Now check if the whole keyword (and a space) starts 'here'
+                my $followsKeyword = ' ';
+                if ($lslKeywords{$key} != '')
+                {
+                    $followsKeyword .= $lslKeywords{$key};
+                }
+                my $tmp = substr($script,$index,length($key)+1);
+                for (my $index2; $index2 < length($followsKeyword); $index2++)
+                {
+                    my $tmp2 = substr($followsKeyword,$index2,1);
+                    if ($tmp eq $key . $tmp2)
+                    {
+                        # Yahoo! Found a matching type/keyword :)
+                        #
+                        # Keep this nice type/keyword + character and move
+                        # past them - hoping to find more spaces.
+
+                        # We have one really odd case here - else - can be followed
+                        # by a block { or a space then a statement. Either works...
+                        # so peek ahead in this cast - see if we found 'else {' and
+                        # if we did, then simply remember the 'else' part here.
+                        my $tmp3 = substr($script,$index,length($key)+2);
+                        if ($tmp3 eq 'else {')
+                        {
+                            # Special else case - we can remove that space
+                            $newScript .= $key;
+                            $index += length($tmp)-1;
+                            $found = 1;
+                        }
+                        else
+                        {
+                            print "Phase02: Found type/keyword: $key$tmp2\n" if ($dbgSpaces >= 2);
+
+                            $newScript .= $key . $tmp2;
+                            $index += length($tmp)-1;
+                            $found = 1;
+                        }
+                    }
+                }
+            }  # end if we found a matching first character for keywords
+        }   # End foreach...
+
+        # As long as we haven't found a keyword - we can continue processing....
+        if ($found == 0)
+        {
+            # Anything that isn't a space gets copied (i.e. spaces are getting dropped all over the place)
+            if ($char ne " ")
+            {
+                $newScript .= $char;
+            }
+
+            # Figure out the staring or ending a code block.
+            # We want to know when a function ended so that
+            # we can add a line separater between functions.
+            if ($char eq '{')
+            {
+                $braceCount++;
+
+                # Can we find the variables before a function here?
+                # On first brace, before default and we have some (1 or more)
+                # semicolen's before this brace - then we know this is where
+                # global variables are just right before a function definition.
+                if (($braceCount == 1) && ($pastDefault == 0) && ($semiCount > 0))
+                {
+                    # Find the semicolan closest to the end of the current script.
+                    # That is the end of the current set of variables before this new
+                    # function. So swap a ';/*vars*/\n' for the ';' and tada variables
+                    # on a line and we have a token to find them easily :)
+                    my $varStart = rindex($newScript,';');
+                    substr($newScript,$varStart,1) = ";/\*vars\*/\n";
+                }
+
+                # Check if the block of code we just started happens to be
+                # a '\ndefault{' - this is the start of the default section
+                # which is right before the event handlers.
+                my $tmp = "\ndefault{";
+                if (substr($newScript,-length($tmp)) eq $tmp)
+                {
+                    $pastDefault = 1;
+                    $newScript .= "\n";
+                    $semiCount = 0;
+                }
+            }
+            if ($char eq '}')
+            {
+                $braceCount--;
+                if (($braceCount == 0) || (($pastDefault == 1) && ($braceCount == 1)))
+                {
+                    # When we get to the end of a function - we add a new line to break up the functions
+                    #  (we don't need to do this - this is just for us to be nice to ourselves)
+                    $newScript .= "\n";
+                    $semiCount = 0;
+                }
+            }
+            if ($char eq ';')
+            {
+                $semiCount++;
+            }
+        }   # End if not found
+    }       # End for each character of the script
+
+    # Ok - now let's do the needful and rearrange the order of things.
+    # We want all of the globals gathered up and turned into one line - the first line
+    # and the rest of the script we put after the variables.
+    $script = $newScript;
+    $newScript = "";
+    print "Midway: Phase02: $script\n\n" if ($dbgSpaces >= 2);
+
+    my @lines = split "\n", $script;
+    for (my $index = 0; $index < 2; $index++)
+    {
+        # We do this in two passes - gather up variables on pass 1
+        # assemble the rest of the script on pass 2
+        foreach my $line (@lines)
+        {
+            chomp($line);
+
+            if ($index == 0)
+            {
+                if ($line =~ /\/\*vars\*\/$/)
+                {
+                    my $tmp = $line;
+                    $tmp =~ s/\/\*vars\*\/$//;
+                    $newScript .= $tmp;
+                }
+            }
+            else
+            {
+                if (!($line =~ /\/\*vars\*\/$/))
+                {
+                    $newScript .= $line . "\n";
+                }
+            }
+        }
+
+        # If we are doing variables - add a line separator at end of varibles.
+        if ($index == 0)
+        {
+            $newScript .= "\n";
+        }
+    }
+
+    print "Exit: Phase02: $newScript\n\n" if ($dbgSpaces >= 1);
+}
+
+# Phase03 - Simple pass - convert any (string)number to "number" for both integers and floats.
+# Think small incremental changes to optimize... this step enables the next step which is
+# all about const string operation optimization.
+sub Phase03()
+{
+    print "Enter: Phase03\n" if ($dbgConstNums >= 1);
+
+    $script = $newScript;   # We start over again...
+    $newScript = "";        # The new script we are generating :)
+    my $index1 = 0;         # Index of where we start searching for string cast (string)
+    my $newIndex = 0;       # Where do we find a the start of a string cast?
+    my $count = 0;
+
+    while (($newIndex = index(substr($script,$index1),"\(string\)")) != -1)
+    {
+        my $tmp = substr($script,$index1+$newIndex+length("\(string\)"));
+
+        my $numbers = "";
+        my $char;
+        for (my $index2=0;(($char = substr($tmp,$index2,1)) =~ /0|1|2|3|4|5|6|7|8|9|\./);$index2++)
+        {
+            $numbers .= $char;
+        }
+        if (length($numbers) > 0)
+        {
+            if ($newIndex > 0)
+            {
+                $newScript .= substr($script,$index1,$newIndex);
+            }
+            my $tmp2 = "\"$numbers\"";
+            $newScript .= SaveAString($numbers);
+            $index1 += $newIndex + length($tmp2) + length("\(string\)") - 2;
+            $count++;
+        }
+        else
+        {
+            $newScript .= substr($script,$index1,$newIndex+length("\(string\)"));
+            $index1 += $newIndex+length('(string)'); # Land on the character after the (string)
+        }
+    }
+    if ($index1 < length($script))
+    {
+        $newScript .= substr($script,$index1);
+    }
+
+    print "Phase03: Converted $count constant numbers to strings" if ($dbgConstNums >= 2);
+    print "Exit: Phase03\n\n" if ($dbgConstNums >= 1);
+}
+
+
+# Get a constant string token from a given index into $script
+# Returns: const string token
+sub GetConstStrToken($)
+{
+    my $tokenIndex = shift;
+
+    print "\nGetConstStrToken($tokenIndex):Checking start of token at $tokenIndex - which is:" . substr($script, $tokenIndex) . "\n" if ($dbgStringGrouping >= 4);
+    my $endTokenIndex = index(substr($script, $tokenIndex+1), $stringTokenChar);
+    if ($endTokenIndex != -1)
+    {
+        my $token = substr($script,$tokenIndex,$endTokenIndex+2);
+        print "GetConstStrToken($tokenIndex): Found a const string token at index $endTokenIndex from $tokenIndex token is:$token\n" if ($dbgStringGrouping >= 4);
+        my ($blah, $count) = FindStringToken($token);
+        if ($count > 0)
+        {
+            return $token;
+        }
+        PrintStringsTable() if ($dbgStringGrouping >= 4);
+        print "GetConstStrToken($tokenIndex): Failed to find token $token - so are we sure it's ours?\n" if ($dbgStringGrouping >= 4);
+    }
+
+    print "GetConstStrToken($tokenIndex): Returned a null string - failed to find the token...\n\n" if ($dbgStringGrouping >= 4);
+    return "";
+}
+
+
+# Phase04 - We are all about removing string operations in this phase. We got looking
+#  for strings that are concatenated together and convert them to a larger string.
+#  We'll also decrease the usage counters in the individual string usages and add
+#  our new larger string to the string table.
+sub Phase04()
+{
+    #  Basically we have some strings that are constructed of constants:
+    #   "string "+"something "+"evenmore."
+    #  Seek out the strings like this and convert them to one simple
+    #  string. It's minor - but every string operation costs CPU that
+    #  we don't want to spend..
+    #
+    #  These are easy to cleanup - not too difficult to find either...
+    #  just gotta look for them.
+    $script = $newScript;   # We start over again...
+    $newScript = "";        # The new script we are generating :)
+    my $index = 0;          # Index of where we start searching for string cast (string)
+
+    print "Enter: Phase04\n" if ($dbgStringGrouping >= 1);
+
+    # Search for a const string token (i.e.: `###`)
+    while (($tokenIndex = index(substr($script,$index),$stringTokenChar)) != -1)
+    {
+        $token = GetConstStrToken($tokenIndex+$index);
+        print "Found a string token $token at $index length " . length($token) . "\n" if ($dbgStringGrouping >= 3);
+
+        # Loop looking for a series of const string tokens added together (contcat'd really)
+        # via a '+' operator. If we find the append of a const string token, remember and loop again
+        my @tokens = ($token);
+        my $skipTokenIndex = $index+$tokenIndex+length($token);
+        print "Checking for +` at $skipTokenIndex which is:" . substr($script,$skipTokenIndex,20) . "\n" if ($dbgStringGrouping >= 3);
+        while ((length($token) > 0) && (substr($script,$skipTokenIndex,2) eq '+' . $stringTokenChar))
+        {
+            $token = GetConstStrToken($skipTokenIndex+1);
+            if (length($token) > 0)
+            {
+                push @tokens,$token;
+                print "Found another string token $token at " . ($skipTokenIndex+1) . " length " . length($token) . "\n" if ($dbgStringGrouping >= 3);
+                $skipTokenIndex += length($token) + 1;  # Bump index by token and the + char
+            }
+        }
+
+        # If we got more than one token - jam em together and make a new string
+        if (@tokens > 1)
+        {
+            my $newString = "";
+            my $additionalLength = 0;
+            foreach $token (@tokens)
+            {
+                $additionalLength += length($token)+1;
+                my ($string,$count) = FindStringToken($token);
+                $newString .= $string;
+                DecreaseStringUsageCount($string);
+            }
+            print "Built a new string: $newString\n" if ($dbgStringGrouping >= 2);
+            $newScript .= substr($script,$index,$tokenIndex);
+            $token = SaveAString($newString);
+            print "Saved new string as $token - inserting into newScript\n" if ($dbgStringGrouping >= 2);
+            $newScript .= $token;
+            $index += $tokenIndex+$additionalLength-1;  # Adjust down one char for last const string (no '+' after it)
+        }
+        else
+        {
+            print "No strings to bundle up - so looking for next one...\n" if ($dbgStringGrouping >= 3);
+            $token = pop @tokens;   # Could just as well shift here... there's only one entry...
+            $newScript .= substr($script,$index,$tokenIndex+length($token));
+            print "We had found one token: $token  And new script is:$newScript\n" if ($dbgStringGrouping >= 3);
+            $index += $tokenIndex + length($token);
+            print "updated index to be $index    added $tokenIndex and length of $token\n" if ($dbgStringGrouping >= 3);
+        }
+    }
+    print "Appending rest of the script: " . substr($script,$index) . "\n" if ($dbgStringGrouping >= 3);
+    $newScript .= substr($script,$index);
+
+    print "Exiting: Phase04\n" if ($dbgStringGrouping >= 1);
+}
+
+# All of the lsl types and default initialization values that we don't need to set.
+my %lslTypes;
+$lslTypes{'float'} = '0.';  # Python optimizer
+$lslTypes{'integer'} = '0'; # Same as FALSE... we have to get rid of defined LSL values
+$lslTypes{'key'} = "00000000-0000-0000-0000-000000000000"; # Same as NULL_KEY
+$lslTypes{'list'} = "\[\]";
+$lslTypes{'quaternion'} = '<0.,0.,0.,1.>';
+$lslTypes{'rotation'} = '<0.,0.,0.,1.>';
+$lslTypes{'string'} = '""';
+$lslTypes{'vector'} = '<0.,0.,0.>';
+
+sub CheckType($$)
+{
+    my $checkType = shift;
+    my $returnFailure = shift;
+    my $found = 0;
+
+    foreach my $key (keys %lslTypes)
+    {
+        if ($key eq $checkType)
+        {
+            $found = 1;
+        }
+    }
+    if ($found == 0)
+    {
+        if ($returnFailure == 0)
+        {
+            die "Eep - $var doesn't seem to be a known lsl type.\n";
+        }
+        return 0;
+    }
+
+    return 1;
+}
+
+
+my @lslKeywords = ('for','if','else','while','do','jump','return','state','pass');
+my @lslEvents = ('attach','at_rot_target','at_target','changed','collision','collision_end',
+                 'collision_start','control','dataserver','email','experience_permissions',
+                 'experience_permissions_denied','http_request','http_response','land_collision',
+                 'land_collision_end','land_collision_start','link_message','listen','money',
+                 'moving_end','moving_start','not_at_rot_target','not_at_target','no_sensor',
+                 'object_rez','on_rez','path_update','remote_data','run_time_permissions','sensor',
+                 'state_entry','state_exit','timer','touch','touch_end','touch_start',
+                 'transaction_result');
+my $phase05routineName = "";
+sub Phase05HandleToken($$$$$)
+{
+    my $token = shift;
+    my $prevToken = shift;
+    my $nextChar = shift;
+    my $prevKind = shift;
+    my $blockLevel = shift;
+    my $tokenDelimiters = '\'|`|#';
+
+    print "Handling token:$token  previous token:$prevToken  next character:$nextChar\n" if ($dbgParseTokens >= 3);
+
+    # Any lsl keywords are nothing we care about...
+    my $i;
+    for ($i = 0; $i < @lslKeywords; $i++)
+    {
+        if ($token eq $lslKeywords[$i])
+        {
+            print "Found lsl keyword: $token\n" if ($dbgParseTokens >= 3);
+            return ($token,'keyword',0);
+        }
+    }
+
+    # Any lsl events are nothing we care about...
+    my $i;
+    for ($i = 0; $i < @lslEvents; $i++)
+    {
+        if ($token eq $lslEvents[$i])
+        {
+            print "Found lsl event: $token\n" if ($dbgParseTokens >= 3);
+            $phase05routineName = $token;   # Event names are effectively routine names
+            return ($token,'event',0);
+        }
+    }
+
+    # Is this a token we already know about?
+    if (substr($token,0,1) =~ /$tokenDelimiters/)
+    {
+        print "Found a known token: $token\n" if ($dbgParseTokens >= 3);
+        return ($token,'token',0);
+    }
+
+    # If the token is just a set of numbers (. and x included)
+    # then we return and just declare it a number.
+    my $numberDigitCount = 0;
+    for ($i = 0; $i < length($token); $i++)
+    {
+        if (substr($token,$i,1) =~ /0|1|2|3|4|5|6|7|8|9|\.|x/)
+        {
+            $numberDigitCount++;
+        }
+    }
+    if ($numberDigitCount == length($token))
+    {
+        print "Found a number: $token\n" if ($dbgParseTokens >= 3);
+        return ($token,'number',0);
+    }
+
+    # Could be a ll runtime routine - so notice it
+    if (($token =~ /^ll/) && ($nextChar eq '('))
+    {
+        my $newToken = SaveALLRoutine($token);
+        print "Found a llX routine: $token   mapped to $newToken\n" if ($dbgParseTokens >= 3);
+        return ($newToken,'llroutine',0);
+    }
+
+    # Any lsl type - could be a typecast or just a type defining a variable
+    if (CheckType($token,1) == 1)
+    {
+        if (($prevToken eq '(') && ($nextChar eq ')'))
+        {
+            print "Found a lsl type used as typecast: $token\n" if ($dbgParseTokens >= 3);
+            return ($token,'typecast',0);
+        }
+
+        print "Found a type: $token\n" if ($dbgParseTokens >= 3);
+        return ($token,'type',0);
+    }
+
+    # If the previous token kind is a type, then we have the name of a
+    # local variable being declared :)
+    if ($prevKind eq 'type')
+    {
+        my $localVar = SaveAVariable($token . '@' . $phase05routineName . ':' . $blockLevel);
+        print "Found a variable: $token (in routine $phase05routineName) at block level $blockLevel  mapped to $localVar\n" if ($dbgParseTokens >= 3);
+
+        my ($key,$useCount) = FindVariableToken($localVar);
+        return ($localVar,'variable',$useCount);
+    }
+
+    # Could be a variable - check for them...
+    my $memberIndex = index($token,'.');
+    my $member = "";
+    if ($memberIndex != -1)
+    {
+        print "Found a token with a dot - so assuming it's a variable with a member reference:$token\n" if ($dbgParseTokens >= 3);
+        $member = substr($token,$memberIndex+1);
+        $token = substr($token,0,$memberIndex);
+    }
+    # Look for local variables first...
+    my $varToken,$useCount,$matchLevel;
+    if ($phase05routineName ne "")
+    {
+        my ($varToken,$useCount,$matchLevel) = FindVariableLevel($token . '@' . $phase05routineName,$blockLevel);
+        if (($useCount > 0) && ($varToken ne ""))
+        {
+            SaveAVariable($token . '@' . $phase05routineName . ':' . $matchLevel);
+            print "Found a variable being used at level $matchLevel - usage count:$useCount(+1)  mapped to $varToken\n" if ($dbgParseTokens >= 3);
+
+            if ($memberIndex != -1)
+            {
+                return ($varToken, 'variableMember',$member)
+            }
+            return ($varToken,'variableUse',0);
+        }
+    }
+    # Now we look for global variables (i.e. nothing beyond the token@  which would normally be a global)
+    my ($varToken,$useCount,$matchLevel) = FindVariableLevel($token . '@',$blockLevel);
+    if (($useCount > 0) && ($varToken ne ""))
+    {
+        SaveAVariable($token . '@' . ':' . $matchLevel);
+        print "Found a variable being used at level $matchLevel - usage count:$useCount(+1)  mapped to $varToken\n" if ($fv >= 3);
+
+        if ($memberIndex != -1)
+        {
+            return ($varToken, 'variableMember',$member)
+        }
+        return ($varToken,'variableUse',0);
+    }
+
+    # Last possibility - routine name :)
+    my ($routineToken,$routineCount) = FindRoutineToken($token);
+    if (($routineCount > 0) && ($routineToken ne ""))
+    {
+        print "Found a routine name - usage count:$routineCount  mapped to $routineToken\n" if ($dbgParseTokens >= 3);
+        SaveARoutine($token);
+        return ($routineToken,'routineUse',0);
+    }
+    # The first routine name we get of each line of the script IS the name of the
+    # routine that we are parsing - we want to remember it's name for handling
+    # of the local variables.
+    if ($phase05routineName eq "")
+    {
+        $phase05routineName = $token;
+    }
+    $token = SaveARoutine($token);
+    print "Found a new routine name: $token\n" if ($dbgParseTokens >= 3);
+    return ($token,'routine',0);
+}
+
+
+# ParseLine - does a couple things... gathers up all the routine names and saves them
+# as tokens. We also inplace replace all of the global variables with the tokens we've already
+# collected and get those replaced. Bump the usage counts each time we see a reference to
+# a variable or a routine.
+#
+# We're using the DCR option for the python optimizer - so we don't expect to find unused
+# variables or routines... but it's short name generator doesn't always generate short names.
+# So we'll figure out a way to always make short variable/routine names.
+#
+# Our goal - NOT to have an all whizzy parser - but to get routine names saved/tokenized
+# also replace all global variable names used. Secondary goal - tokenize local variables.
+#
+# We're going to just break the string into as many pieces as possible - we know about
+# a bunch of single character delimiters - any of them are enough to end a token.
+#
+# We also clean up a double logical negative - the python optimizer generates this
+# for us. The intent was good - but - no reason to have !!variable as just variable works.
+sub Phase05ParseLine($)
+{
+    my $line = shift;
+    my $newLine = "";
+
+    my $delimiters = ' (){};=&|![],-+*/%~<>^';
+    my $blockLevel = 0;
+
+    print "Entering Phase05ParseLine($line)\n" if ($dbgParseTokens >= 2);
+
+    my $token = "";
+    my $prevToken = "";
+    my $prevType = "";
+    my $tokenKind = "";
+    my $tokenCount;
+    $phase05routineName = "";
+    for (my $i=0; $i < length($line); $i++)
+    {
+        my $char = substr($line,$i,1);
+        if (-1 != index($delimiters, $char))
+        {
+            if (length($token) > 0)
+            {
+                print "Found: $token\n" if ($dbgParseTokens >= 2);
+                ($token,$tokenKind,$tokenCount) = Phase05HandleToken($token,$prevToken,$char,$tokenKind,$blockLevel);
+                if (($blockLevel == 0) && ($tokenKind eq 'routine'))
+                {
+                    $blockLevel++;  # First instance of a routine name is really parameters so
+                                    # we artifically bump the block level for them :)
+                                    # This lets us see parameters in preference to global vars.
+                }
+                # Usage of member variables (vector.x for example) - requires us to remember
+                # the member that was used... so we returned the member used from handling
+                # we just need to 'improve' the inserted token to include the member variable
+                # reference.
+                if ($tokenKind eq 'variableMember')
+                {
+                    $token .= '.' . $tokenCount;    # It's actually the member name that we remembered
+                }
+
+                $newLine .= $token;
+                $prevToken = $token;
+                if ($tokenKind eq 'type')
+                {
+                    $prevType = $token;
+                }
+                $token = "";
+            }
+
+            # Handle all of the basic variable initialization optimizations
+            # (we only do this when a variable is declared or it's token count is 1)
+            if (($tokenKind eq 'variable') && ($char eq '=') && ($tokenCount == 1))
+            {
+                # The idea here is that we want to peek ahead up to a ';' - and see
+                # if the value being assigned happens to be exactly the default value.
+                # If we found a default value - then we can skip the initialization as
+                # the variable creation will set it to the default :)
+                my $j = $i+1;
+                my $initValue = "";
+                my $peekChar = substr($line,$j,1);
+                while ($peekChar ne ';')
+                {
+                    $initValue .= $peekChar;
+                    $j++;
+                    $peekChar = substr($line,$j,1);
+                }
+                if ($lslTypes{$prevType} eq $initValue)
+                {
+                    print "Init value was the default for $prevType $prevToken i.e. $initValue\n"  if ($dbgParseTokens >= 2);
+                    $i += length($initValue);
+                }
+                else
+                {
+                    $newLine .= $char;
+                }
+            }
+            else
+            {
+                if ($char eq '{')
+                {
+                    $blockLevel++;
+                }
+                if ($char eq '}')
+                {
+                    $blockLevel--;
+                }
+
+                # Check for !! characters - which the python optimizer setup for us.
+                # These are logical not operators - no reason for two to be in a row.
+                # So we just quietly drop them from the script.
+                my $peekChar = substr($line,$i+1,1);
+                if (($char eq '!') && ($peekChar eq '!'))
+                {
+                    $i++;
+                }
+                else
+                {
+                    $newLine .= $char;
+                }
+            }
+            $prevToken = $char;
+        }
+        else
+        {
+            $token .= $char;
+        }
+    }
+
+    print "End of Phase05ParseLine: returning: $newLine\n" if ($dbgParseTokens >= 2);
+    return $newLine;
+}
+
+# Phase05 - Gather up all of the variables - we're starting on the path of variable
+# name length optimization. We're going to do the same kind of thing we did for strings
+# except now it'll be for variable names. Find all variables (global and local) and
+# replace them in the script with a token @#@ - not a great token - but it'll work.
+#
+# We also want to remove any extranous initialization. When you declare a variable then
+# it is set to it's zero value (integer 0, float 0.0, list[], string "", vector <0.0,0.0,0.0>)
+# so it's really just overhead when we initialize a variable to it's default value.
+#
+# We also find all routine names and ll routine names - and turn them into tokens.
+# The idea being that we get a usage count of variables, routines and ll routines.
+sub Phase05()
+{
+    $script = $newScript;   # We start over again...
+    $newScript = "";        # The new script we are generating :)
+    my $index = 0;          # Index of where we start searching for string cast (string)
+    my $foundDefault = 0;   # Flag for when we find the default code block for events
+
+    print "Enter: Phase05\n" if ($dbgGlobalVars >= 1);
+
+    # We already have the globals on the first line of the script
+    # And routines are the rest of the script... so iterate over each
+    # line that we have...
+    foreach my $line (split('\n', $script))
+    {
+        # Check for default block
+        if ($line =~ /^default{$/)
+        {
+            $newScript .= "$line\n";
+            $foundDefault = 1;
+        }
+        else
+        {
+            # We can find a line with just a code block ending (end of default block)
+            #  So just pass it on through...
+            if ($line =~ /^}$/)
+            {
+                $newScript .= "$line\n";
+            }
+            else
+            {
+                $newScript .= Phase05ParseLine($line) . "\n";
+            }
+        }
+        $lineNumber++;
+    }
+    print "Exiting: Phase05\n" if ($dbgGlobalVars >= 1);
+}
+
+# Looking for a constant list here with more than one entry.
+my %constLists = ();
+sub CheckForConstList($)
+{
+    my $list = shift;
+
+    # Eliminate the obvious: Empty list
+    if ($list eq '[]')
+    {
+        return 0;
+    }
+
+    # List that has a variable or calls either a local routine or ll routine - not constant
+    if ($list =~ /\'|#|\$/)
+    {
+        return 0;
+    }
+
+    if (!defined($constLists{$list}))
+    {
+        $constLists{$list} = 1;
+    }
+    else
+    {
+        $constLists{$list}++;
+    }
+    return $constLists{$list};
+}
+
+my $generatedConstListCount = 0;
+sub SwapInConstGlobal($)
+{
+    my $list = shift;
+
+    # Create our new variable in the variables table
+    my $newVarName = "globalConstList$generatedConstListCount";
+    $generatedConstListCount++;
+    my $token = SaveAVariable("$newVarName:0");
+
+    # Inject the global as part of the 1st line of the script
+    #  which has all the globals and their initializations
+    my @pieces = split("\n", $script);
+    my $vars = shift @pieces;
+    $vars .= "list $token=$list;";
+
+    # Now we replace the const list throughout the rest of the script
+    # Lists are perl regular expressions... so we can't just swap them
+    # in with a nice substitute pattern... possible... just not so easy.
+    # We'd need to escape the [] characters and then give it a shot...
+    my $rest = join("\n", @pieces);
+    $list =~ s/\[/\\\[/g;
+    $list =~ s/\]/\\\]/g;
+    $rest =~ s/$list/$token/g;
+
+    # Put it all back together nicely...
+    $newScript = "$vars\n$rest";
+}
+
+# Phase06 - Collect up the constant lists used to see if they get reused enough
+# for creating a global and then using the global instead of the inline const list.
+#
+# Not expecting to include lists within a list... or make sublists... the parsing
+# here is really simple minded.
+sub Phase06()
+{
+    $script = $newScript;   # We start over again...
+    $newScript = "";        # The new script we are generating :)
+
+    print "Enter: Phase06\n" if ($dbgGlobalLists >= 1);
+
+    # Search for constant lists - this is really simply looking for
+    # a list that contains only:
+    #  - constant strings (extracted to string tokens)
+    #  - constant numbers (integer or float)
+    # Any variable at all in a list and we do not consider it for
+    # promoting it to a global const list.
+    my $index = index($script,'[',0);
+    while ($index != -1)
+    {
+        my $end = index($script,']',$index+1);
+        if ($end != -1)
+        {
+            my $list = substr($script,$index,$end-$index+1);
+            CheckForConstList($list);
+        }
+        $index = index($script,'[',$index+1);
+    }
+
+    # Check the list of const lists - see if they are used more than once
+    foreach my $key (keys %constLists)
+    {
+        if ($constLists{$key} > 1)
+        {
+            print "Found list used $constLists{$key} times: $key\n" if ($dbgGlobalLists >= 2);
+            SwapInConstGlobal($key);
+            $script = $newScript;
+        }
+    }
+
+    $newScript = $script;
+    print "Exiting: Phase06\n" if ($dbgGlobalLists >= 1);
+}
+
+# NextShortName - makes up a short variable/routine name...
+# This generates (a through z, A through Z, then aa through aZ then ba...bZ)
+# This gives us way over 52+52*52 (2756) short names - way more than we'll ever need.
+my $possibleNameChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+my $nextNamePrimary = 0;
+my $nextNameGroup = -1;
+sub NewShortName()
+{
+    my $output;
+
+    if ($nextNameGroup == -1)
+    {
+        $output = substr($possibleNameChars,$nextNamePrimary,1);
+    }
+    else
+    {
+        $output = substr($possibleNameChars,$nextNameGroup,1) .
+                  substr($possibleNameChars,$nextNamePrimary,1);
+    }
+    
+    $nextNamePrimary++;
+    if ($nextNamePrimary >= length($possibleNameChars))
+    {
+        $nextNamePrimary = 0;
+        $nextNameGroup++;
+    }
+
+    return $output;
+}
+
+# Phase07 - Turn all the internal tokens back into appropriate names and
+# values throughout the final script.
+sub Phase07()
+{
+    $script = $newScript;   # We start over again...
+    $newScript = "";        # The new script we are generating :)
+
+    print "Enter: Phase07\n" if ($dbgFinalSwaps >= 1);
+
+    # Start with variable names - make em all short
+    foreach my $key (keys %variables)
+    {
+        my ($token,$count) = split ':', $variables{$key};
+        my $newShortName = NewShortName();
+        print "Swapping $token into $newShortName\n" if ($dbgFinalSwaps > 0);
+        $script =~ s/$token/$newShortName/g;
+    }
+
+    # Next up we handle routine names - make em all short
+    foreach my $key (keys %routines)
+    {
+        my ($token,$count) = split ':', $routines{$key};
+        my $newShortName = NewShortName();
+        print "Swapping $token into $newShortName\n" if ($dbgFinalSwaps > 0);
+        $script =~ s/$token/$newShortName/g;
+    }
+
+    # Put back all of the llX routines
+    #
+    # These are also special tokens... $ is a perl regex character
+    # so we need to escape the token beginning and ending character
+    # for the regex to replace these into place...
+    foreach my $key (keys %routinesll)
+    {
+        my ($token,$count) = split ':', $routinesll{$key};
+        $script =~ s/$token/$key/g;
+    }
+
+    # Put back all of the string values
+    foreach my $key (keys %strings)
+    {
+        my ($token,$count) = split ':', $strings{$key};
+        $script =~ s/$token/\"$key\"/g;
+    }
+
+    $newScript = $script;
+
+    print "Exiting: Phase07\n" if ($dbgFinalSwaps >= 1);
+    # Done :)
+}
+
+
+Phase01();
+Phase02();
+Phase03();
+Phase04();
+Phase05();
+Phase06();
+Phase07();
+if (defined($ARGV[1]))
+{
+    print "// Copyright 2011-2019 Fleursoft - All rights reserved.\n";
+}
+else
+{
+    print "// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)\n";
+}
+print "$newScript";
+PrintStringsTable() if ($dbgFinalSwaps > 0);
+PrintVariablesTable() if ($dbgFinalSwaps > 0);
+PrintRoutinesTable() if ($dbgFinalSwaps > 0);
+PrintLLRoutinesTable() if ($dbgFinalSwaps > 0);
+$scriptName = $ARGV[0];
+$scriptName =~ s/\.lsl$//;
+print "// lsl script: ~" . $scriptName . "  optimized at:" . gmtime() . "\n";
+exit 0;

@@ -1,3 +1,5 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
 // User interface - output to prims or local chat (for owner) and clicks
 //
 // Note: This module has UNICODE characters in it! Be very careful! I did try
@@ -48,73 +50,79 @@
 #define NUMBEROFLINES Define_DefaultNumberLines
 list menuStartItem = [0,0,0,0,0,0,0,0,0,0,0];
 /* END: The following constants were calculated by FSUI-Lookup and placed here as constants */
-
+// Specific lines for each menu text and prim numbers that get clicked on (and range for prim check)
+#define GETMENUPRIMNUMBER(arg) 32-arg
+#define GETMENUCLICKSNUMBER(arg) 34-arg
+#define PRIMMENUMAX 34
+#define PRIMMENUMIN 5
 
 // Current menu settings...
-integer activeMenuIndex = -1;		// Which menu # is active (prim index effectively)
-integer menuNumberOfEntries = 0;	// Total number of entries - (not all of which are known now)
-integer startingMenuItem = 0;		// Where are we relative to the menu top? (i.e. first menu # shown)
-integer menuLength = 0;				// # of entries on the menu at this time
-integer menuLinkId = 0;				// Where do we send the next menu request?  (for scroll, display, etc)
-list menuItems = [];				// Names of the menu items
-list menuParams = [];				// Parameters for each of the menu items
-list menuSequences = [];			// Sequence names (i.e. name without the '#<#> ' characters)
-string menuName = "";				// Name of the current menu
-integer constrainedMenu = Define_FlagRangeConstrainedMenu;		// Is the menu constrained (to what is on the screen) or not?
+integer activeMenuIndex = -1;           // Which menu # is active (prim index effectively)
+integer menuNumberOfEntries = 0;        // Total number of entries - (not all of which are known now)
+integer startingMenuItem = 0;           // Where are we relative to the menu top? (i.e. first menu # shown)
+integer menuLength = 0;                 // # of entries on the menu at this time
+integer menuLinkId = 0;                 // Where do we send the next menu request?  (for scroll, display, etc)
+list menuItems = [];                    // Names of the menu items
+list menuParams = [];                   // Parameters for each of the menu items
+list menuSequences = [];                // Sequence names (i.e. name without the '#<#> ' characters)
+string menuName = "";                   // Name of the current menu
+integer constrainedMenu = Define_FlagRangeConstrainedMenu;        // Is the menu constrained (to what is on the screen) or not?
 
 #define NO_HIGHLIGHT -2
-integer highlightMe = NO_HIGHLIGHT;		// Highlighted menu item
-integer highlightLinkid = NO_HIGHLIGHT;	// Which menu are we on which started to dance?
-integer tempHighlight = NO_HIGHLIGHT;	// For admin menus when something on the menu was selected
-string highlightName = "";				// When we have a name for the sequence to highlight
-integer prevUserMenuLinkId = -1;	// Previous user menu that we were on - this is where we return to...
-integer UIflags = 0;				// Bits for any of the UI flags
-integer verticalSize = 0;			// Default vertical size is # 0 (all squished together)
+integer highlightMe = NO_HIGHLIGHT;     // Highlighted menu item
+integer highlightLinkid = NO_HIGHLIGHT; // Which menu are we on which started to dance?
+integer tempHighlight = NO_HIGHLIGHT;   // For admin menus when something on the menu was selected
+string highlightName = "";              // When we have a name for the sequence to highlight
+integer prevUserMenuLinkId = -1;        // Previous user menu that we were on - this is where we return to...
+integer UIflags = 0;                    // Bits for any of the UI flags
+integer verticalSize = 0;               // Default vertical size is # 0 (all squished together)
 #define FlagMask 268435455
 #define RecordingFlag 1
 #define DanceSelectionFlag 2
-		// 0 = All selection, 2 = Random selection
+        // 0 = All selection, 2 = Random selection
 
 #define frontSide 4
 #define topSide 0
 #define backSide 2
 
-integer primMeUp = TRUE;			// Are we drawing on prims or just text?
-integer mode = Mode_Off;			// Start with nothing being done at all
-integer deferredMode = FALSE;		// Are we in deferred dancing mode?
-integer clickStartedOnWhichLink = -1;	// Did the user start clicking on which link? (looking for long click delays)
-integer autoInvite = FALSE;			// Do we automatically invite anyone to dance with us?
-
+integer primMeUp = TRUE;                // Are we drawing on prims or just text?
+integer changedTheme = FALSE;           // If colors or transparency changed - we go back to admin menu
+integer mode = Mode_Off;                // Start with nothing being done at all
+integer deferredMode = FALSE;           // Are we in deferred dancing mode?
+integer clickStartedOnWhichLink = -1;   // Did the user start clicking on which link? (looking for long click delays)
+integer updateInProgress = 0;           // Do we have an update in progress? (i.e. no UI updates while that happens)
+integer autoInvite = FALSE;             // Do we automatically invite anyone to dance with us?
+integer lastMenuWasInitialMenu = TRUE;  // Is the last menu we showed a user the initial menu? (i.e. welcome)
 
 // Prim menu details
-vector primColorWhite = <1.0, 1.0, 1.0>;		// For use when we need white (for drawing textures correctly)
-vector primBackgroundColor = <0.0, 0.0, 0.0>;	// Background color of black as a default
-vector primTextColorNormal = <1.0, 1.0, 1.0>;	// We use white as hover text - think of this as normal color for text
-vector primTextColorHighlight = <0.0, 1.0, 0.0>;	// We use green for highlighted text
-float primBackgroundAlpha = 1.0;	// Alpha level for background
-float primTextColorAlpha = 1.0;		// Alpha level for text color
-float primTextColorHighlightAlpha = 1.0;	// Alpha level for highlight color
-float primBackAlphaLevel = 0.0;		// Alpha level for the back of the HUD (0=transparent, 1.0 is solid) - changes when we are rez'd
-integer primPrevMenuIndex = -1;	// Indicator for when we need to draw the new prim for a menu change (-1 to 11) -1 for non-drawn, 0-11 for menus (1-10+inventory+admin)
+vector primColorWhite = <1.0, 1.0, 1.0>;        // For use when we need white (for drawing textures correctly)
+float primColorAlpha = 1.0;                     // Alpha setting for prim colors (solid)
+#define primBackgroundColor <0.0, 0.0, 0.0>     // Background color of black as a default
+vector primTextColorNormal = <1.0, 1.0, 1.0>;   // We use white as hover text - think of this as normal color for text
+vector primTextColorHighlight = <0.0, 1.0, 0.0>;// We use green for highlighted text
+#define primTextColorAlpha 1.0                  // Alpha level for text color
+#define primTextColorHighlightAlpha 1.0         // Alpha level for highlight color
+float primBackAlphaLevel = 0.0;                 // Alpha level for the back of the HUD (0=transparent, 1.0 is solid) - changes when we are rez'd
+integer primPrevMenuIndex = -1;                 // Indicator for when we need to draw the new prim for a menu change (-1 to 11) -1 for non-drawn, 0-11 for menus (1-10+inventory+admin)
 
 string primTexture = DefaultThemeName;
-	// What is the name of the texture we use?
+    // What is the name of the texture we use?
 
 // Scale and offset of textures for each of the prim menus that change (menu# and mode settings)
 //  Good theme settings would include offsets/colors in a config notecard (no menu selected, 1,2,3,4,5,6,7,8,9,10,Inventory,Admin menu)
-#define PRIMMENUSOFFSETS ["0.5,0.050,0.75,0.47",	\
-"0.5,0.050,0.75,0.407",	\
-"0.5,0.050,0.75,0.345",	\
-"0.5,0.050,0.75,0.282",	\
-"0.5,0.050,0.75,0.220",	\
-"0.5,0.050,0.75,0.157",	\
-"0.5,0.050,0.75,0.095",	\
+#define PRIMMENUSOFFSETS ["0.5,0.050,0.75,0.47",    \
+"0.5,0.050,0.75,0.407",  \
+"0.5,0.050,0.75,0.345",  \
+"0.5,0.050,0.75,0.282",  \
+"0.5,0.050,0.75,0.220",  \
+"0.5,0.050,0.75,0.157",  \
+"0.5,0.050,0.75,0.095",  \
 "0.5,0.050,0.75,0.0325", \
-"0.5,0.050,0.75,-0.03",	\
+"0.5,0.050,0.75,-0.03",  \
 "0.5,0.050,0.75,-0.093", \
 "0.5,0.050,0.75,-0.155", \
 "0.5,0.050,0.75,-0.218", \
-"0.5,0.050,0.75,-0.28"] \
+"0.5,0.050,0.75,-0.28"]
 
 // Define a couple of useful index values for the prim menu offsets (for when we need to change what is on the screen)
 #define ADMIN_MENU_INDEX 12
@@ -123,101 +131,88 @@ string primTexture = DefaultThemeName;
 #define PRIMMODEOFFSETS ["0.5,0.025,0.75,-0.328", \
 "0.5,0.025,0.75,-0.359", \
 "0.5,0.025,0.75,-0.391"]
-	// Mode offsets are in the same order/index as the Mode_* macros (Mode_Off = 0, Mode_Dancing, Mode_AO, etc - if modes get added, they get added here too!)
+    // Mode offsets are in the same order/index as the Mode_* macros (Mode_Off = 0, Mode_Dancing, Mode_AO, etc - if modes get added, they get added here too!)
 
 list primMoreButtonsOffsets = ["0.5,0.025,0.25,0.485",
 "0.5,0.025,0.25,0.460"];
-	// More button offsets are for the buttons in the theme to the right side - for the spacer second prim down - these are for auto invite as the rightmost button
-	
-#define primTitleBarOffset "0.5,0.025,0.75,-0.454"
-	// Offsets in texture for the title bar graphic
+    // More button offsets are for the buttons in the theme to the right side - for the spacer second prim down - these are for auto invite as the rightmost button
+
+#define primMenuItemOffsets "0.5,0.025,0.25,0.430"
+    // Blank area under the right auto invite buttons - height of one text prim...
+
+#define primTitleBarOffset [0.5,0.025,0.75,-0.454]
+#define primTitleBar0 0.5
+#define primTitleBar1 0.025
+#define primTitleBar2 0.75
+#define primTitleBar3 -0.454
+    // Offsets in texture for the title bar graphic
 #define primScrollButtonOffset "0.5,0.025,0.75,-0.422"
-	// Offsets in texture for the scroll buttons
+    // Offsets in texture for the scroll buttons
 
 
 // Transient variables
 integer i = 0;
+integer j = 0;
+integer k = 0;
 list p = [];
-list p2 = [];
+list q = [];
+string z;
 
 
 // Sets the text of a menu item (parameter) - normal (not highlighted)
-SetPrimText(integer index, string data)
-{
-	integer z = llList2Integer(PRIMMENUTEXT, index);
+#define SetPrimText(index, data) llSetLinkPrimitiveParamsFast(GETMENUPRIMNUMBER(index), [ PRIM_TEXT, data, primTextColorNormal, primTextColorAlpha ])
+#define SetPrimTextHL(index, data) llSetLinkPrimitiveParamsFast(GETMENUPRIMNUMBER(index), [ PRIM_TEXT, data, primTextColorHighlight, primTextColorHighlightAlpha ])
 
-	llSetLinkPrimitiveParamsFast(z, [ PRIM_TEXT, data, primTextColorNormal, primTextColorAlpha ]);
-}
+    // Get the texture offsets for the menu selection (none, 1-10, Inventory, Admin)
+#define GetPrimMenuOffsets(arg) llList2String(PRIMMENUSOFFSETS, arg)
+#define GetPrimModeOffsets(arg) llList2String(PRIMMODEOFFSETS, arg)
 
-// Sets the text of a menu item from the list of items - normal color (not highlighted)
-SetPrimMenuItem(integer index)
-{
-	integer z = llList2Integer(PRIMMENUTEXT, index);
-	string z2 = llList2String(menuItems,index);
-
-	llSetLinkPrimitiveParamsFast(z, [ PRIM_TEXT, z2, primTextColorNormal, primTextColorAlpha ]);
-}
-
-// Sets the text of a menu item from the list of items - highlighted
-SetPrimMenuItemHL(integer index)
-{
-	integer z = llList2Integer(PRIMMENUTEXT, index);
-	string z2 = llList2String(menuItems,index);
-
-	llSetLinkPrimitiveParamsFast(z, [ PRIM_TEXT, z2, primTextColorHighlight, primTextColorHighlightAlpha ]);
-}
-
-	// Get the texture offsets for the menu selection (none, 1-10, Inventory, Admin)
-string GetPrimMenuOffsets(integer i5)
-{
-	return llList2String(PRIMMENUSOFFSETS, i5);
-}
-
-	// Get the texture offsets for the Mode prim (Off, Dance, AO)
-string GetPrimModeOffsets(integer i5)
-{
-	return llList2String(PRIMMODEOFFSETS, i5);
-}
-
-
-// FIXME? - We should probably move this routine outside of this module... but we have
-//  enough stack/heap space preserved already...
 // Set an initial message for the user to be friendly to them
+//
+// We could move this routine outside of this module... but we have
+//  enough stack/heap space preserved already...
 SetInitialMessage()
 {
-	// Put up a default welcome message with simple directions to get started...
-	llSetLinkPrimitiveParamsFast(PRIMMENUNAMELINK, [ PRIM_TEXT, "", primTextColorNormal, primTextColorAlpha ]);  // clear the menu name
-	
-	SetPrimText(0,"Hi! Welcome to the");
-	SetPrimText(1,"Fleursoft DanceHUD!");
-	SetPrimText(2,"");
-	SetPrimText(3,"Quick directions:");
-	SetPrimText(4,"Off - means off or stop");
-	SetPrimText(5,"Dance - Dancing mode");
-	SetPrimText(6,"AO - ZHAO II AO mode");
-	SetPrimText(7,"");
-	SetPrimText(8,"Menus 1-10 are your menus");
-	SetPrimText(9,"where you can load notecards");
-	SetPrimText(10,"of dance sequences.");
-	SetPrimText(11,"");
-	SetPrimText(12,"I is the inventory menu");
-	SetPrimText(13,"shows you the animations in");
-	SetPrimText(14,"the inventory of the DanceHUD");
-	SetPrimText(15,"");	
-	SetPrimText(16,"A is the administrative");
-	SetPrimText(17,"menu - for things like");
-	SetPrimText(18,"adding dancers and lots more.");
-	SetPrimText(19,"");
-	SetPrimText(20,"The bottom buttons are:");
-	SetPrimText(21,"|◀◀ top of current menu");
-	SetPrimText(22,"◀◀ scroll up current menu");
-	SetPrimText(23,"| middle of current menu");
-	SetPrimText(24,"▶▶ scroll down current menu");
-	SetPrimText(25,"▶▶| bottom of current menu");
-	SetPrimText(26,"◼ stop dancing and start");
-	SetPrimText(27,"a wait sequence");
-	SetPrimText(28,"");
-	SetPrimText(29,"Click the top for a helpful website");
+    // Put up a default welcome message with simple directions to get started...
+    llSetLinkPrimitiveParamsFast(PRIMMENUNAMELINK, [ PRIM_TEXT, "", primTextColorNormal, primTextColorAlpha ]);  // clear the menu name
+    
+    list h1 = [
+    "Hi! Welcome to the",
+    "Fleursoft DanceHUD!",
+    "",
+    "Quick directions:",
+    "Off - means off or stop",
+    "Dance - Dancing mode",
+    "AO - ZHAO II AO mode",
+    "",
+    "Menus 1-10 are your menus",
+    "where you can load notecards",
+    "of dance sequences.",
+    "",
+    "I is the inventory menu",
+    "shows you the animations in",
+    "the inventory of the DanceHUD",
+    "",
+    "A is the administrative",
+    "menu - for things like",
+    "adding dancers and lots more.",
+    "",
+    "The bottom buttons are:",
+    "|◀◀ top of current menu",
+    "◀◀ scroll up current menu",
+    "| middle of current menu",
+    "▶▶ scroll down current menu",
+    "▶▶| bottom of current menu",
+    "◼ stop dancing and start",
+    "a wait sequence",
+    "",
+    "Click the top for a helpful website"
+    ];
+
+    j = llGetListLength(h1);
+    for (i=0; i<j; ++i) {
+        SetPrimText(i, llList2String(h1, i));
+    }
 }
 
 // Display menu - varies what gets done based on the type of UI or position of it even...
@@ -225,127 +220,172 @@ SetInitialMessage()
 //  then draw pretty :-)
 DisplayMenu()
 {
-	// If we are not minimized, then we are showing everything on prims
-	if (primMeUp)
-	{
-		if (activeMenuIndex != primPrevMenuIndex)
-		{
-	    	// Now change the texture to the new menu number
-	    	p = llParseString2List(GetPrimMenuOffsets(activeMenuIndex), [","], []);
-	        llSetLinkPrimitiveParamsFast(PRIMMENUSLINK, [ PRIM_TEXTURE, frontSide, primTexture,
-	        								<llList2Float(p,0), llList2Float(p,1), 0.0>,
-	        								<llList2Float(p,2), llList2Float(p,3), 0.0>, 0 ]);
-			primPrevMenuIndex = activeMenuIndex;
-			Trace("DisplayMenu","Set menu primt to texture index:"+(string)activeMenuIndex)
-		}
+    // If we are not minimized, then we are showing everything on prims
+    if (primMeUp)
+    {
+        if (activeMenuIndex != primPrevMenuIndex)
+        {
+            // Now change the texture to the new menu number
+            p = llParseString2List(GetPrimMenuOffsets(activeMenuIndex), [","], []);
+            llSetLinkPrimitiveParamsFast(PRIMMENUSLINK, [ PRIM_TEXTURE, frontSide, primTexture,
+                                            <llList2Float(p,0), llList2Float(p,1), 0.0>,
+                                            <llList2Float(p,2), llList2Float(p,3), 0.0>, 0 ]);
+            primPrevMenuIndex = activeMenuIndex;
+            Trace("DisplayMenu","Set menu prim to texture index:"+(string)activeMenuIndex)
+        }
 
-		// Draw the menu items in text items...
-		llSetLinkPrimitiveParamsFast(PRIMMENUNAMELINK, [ PRIM_TEXT, menuName, primTextColorNormal, primTextColorAlpha ]);
-		for (i=0; i < menuLength; ++i)
-			SetPrimMenuItem(i);
-		
-		// If we happen to be on the same menu and start - then we can highlight the one we happen to remember that was being danced
-		// Note: We do it after the draw of the rest of the menu items - BECAUSE we do NOT want to slow down the drawing of
-		//  the entries - best to get them fast and then highlight - the user will NOT care about the lil flash of white...
-		
-		// If we are on the menu that needs to have an entry highlighted...
-		if (highlightLinkid == menuLinkId)
-		{
-		
-			// There are a couple of cases here - either we know the index on the menu already (we've seen it before and we haven't scrolled at all)
-			// But lets handle the other case which is we do not know the index on this menu yet - so look it up and see if we can find the index for it.
-			if (NO_HIGHLIGHT == highlightMe)
-			{
-				i = llListFindList(menuSequences, [highlightName]);
-				if (i != -1)
-					highlightMe = i+startingMenuItem;
-			}
+        // Draw the menu items in text items...
+        llSetLinkPrimitiveParamsFast(PRIMMENUNAMELINK, [ PRIM_TEXT, menuName, primTextColorNormal, primTextColorAlpha ]);
+        for (i=0; i < menuLength; ++i)
+        {
+            z = llList2String(menuItems,i);
+            SetPrimText(i,z);
+        }
+        
+        // If we happen to be on the same menu and start - then we can highlight the one we happen to remember that was being danced
+        // Note: We do it after the draw of the rest of the menu items - BECAUSE we do NOT want to slow down the drawing of
+        //  the entries - best to get them fast and then highlight - the user will NOT care about the lil flash of white...
+        
+        // If we are on the menu that needs to have an entry highlighted...
+        if (highlightLinkid == menuLinkId)
+        {
+        
+            // There are a couple of cases here - either we know the index on the menu already (we've seen it before and we haven't scrolled at all)
+            // But lets handle the other case which is we do not know the index on this menu yet - so look it up and see if we can find the index for it.
+            if (NO_HIGHLIGHT == highlightMe)
+            {
+                i = llListFindList(menuSequences, [highlightName]);
+                if (CheckNeqMinusOne(i))
+                {
+                    highlightMe = i+startingMenuItem;
+                }
+            }
 
-			// If we have a highlight here - we know it's in the correct range (it'd be cleared otherwise)
-			if (NO_HIGHLIGHT != highlightMe)
-				SetPrimMenuItemHL(highlightMe-startingMenuItem);
-		}
-		
-		// For admin menus there is a temporary highlight - only useful for the display of the current menu
-		//  Used for highlight of the 'selected' choice - like the default wait menu (if set)
-		if (tempHighlight != NO_HIGHLIGHT)
-			SetPrimMenuItemHL(tempHighlight-startingMenuItem);
-		
-		// Clear off any text settings from the rest of the menu
-		for (i=menuLength; i < NUMBEROFLINES; ++i)
-			SetPrimText(i, "");
-		return;
-	}
-	
-	// When we have a regular menu - just show it... easy peasy...
-	if (IsUserMenu(menuLinkId))
-		llOwnerSay("Menu:"+(string)(menuLinkId-MenuBaseNumber)+"  "+menuName);
-	else
-		llOwnerSay("Menu:"+menuName);		
-	
-	for (i=0; i < menuLength; ++i)
-		llOwnerSay(llList2String(menuItems,i));
-	llOwnerSay("What would you like to do?");
-	Trace("DisplayMenu","Text only:"+menuName);
+            // If we have a highlight here - we know it's in the correct range (it'd be cleared otherwise)
+            if (NO_HIGHLIGHT != highlightMe)
+            {
+                j = highlightMe-startingMenuItem;
+                z = llList2String(menuItems,j);
+                SetPrimTextHL(j,z);
+            }
+        }
+        
+        // For admin menus there is a temporary highlight - only useful for the display of the current menu
+        //  Used for highlight of the 'selected' choice - like the default wait menu (if set)
+        if (tempHighlight != NO_HIGHLIGHT)
+        {
+            j = tempHighlight-startingMenuItem;
+            z = llList2String(menuItems,j);
+            SetPrimTextHL(j,z);
+        }
+        
+        // Clear off any text settings from the rest of the menu
+        for (i=menuLength; i < NUMBEROFLINES; ++i)
+        {
+            SetPrimText(i, "");
+        }
+        return;
+    }
+    
+    // When we have a regular menu - just show it... easy peasy...
+    if (IsUserMenu(menuLinkId))
+    {
+        llOwnerSay("Menu:"+(string)(menuLinkId-MenuBaseNumber)+"  "+menuName);
+    }
+    else
+    {
+        llOwnerSay("Menu:"+menuName);
+    }
+    
+    for (i=0; i < menuLength; ++i)
+    {
+        llOwnerSay(llList2String(menuItems,i));
+    }
+    llOwnerSay("What would you like to do?");
+    Trace("DisplayMenu","Text only:"+menuName);
 }
 
 
 ScrollMenu(integer scrollDirection)
 {
-	if (Scroll_Up == scrollDirection)
-	{
-		if (startingMenuItem >= NUMBEROFLINES)
-			startingMenuItem -= NUMBEROFLINES;
-		else
-		{
-			// Scrolling up when close to top takes us up to the top and then from the top back to the bottom of the menu
-			if (startingMenuItem == 0)
-				startingMenuItem = menuNumberOfEntries - NUMBEROFLINES;
-			else
-				startingMenuItem = 0;
-		}
-	}
-	if (Scroll_Down == scrollDirection)
-	{
-		if (startingMenuItem+NUMBEROFLINES < menuNumberOfEntries)
-			startingMenuItem += NUMBEROFLINES;
-		else
-			startingMenuItem = 0;	// Scroll back to top
-	}
-	if (Scroll_Top == scrollDirection)
-	{
-		startingMenuItem = 0;
-	}
-	if (Scroll_Bottom == scrollDirection)
-	{
-		if (menuNumberOfEntries > NUMBEROFLINES)
-			startingMenuItem = menuNumberOfEntries - NUMBEROFLINES;
-		else
-			startingMenuItem = 0;
-	}
-	if (Scroll_Middle == scrollDirection)
-	{
-		if (menuNumberOfEntries > NUMBEROFLINES)
-			startingMenuItem = (menuNumberOfEntries - NUMBEROFLINES) / 2;
-		else
-			startingMenuItem = 0;
-	}
+    if (Scroll_Up == scrollDirection)
+    {
+        if (startingMenuItem >= NUMBEROFLINES)
+        {
+            startingMenuItem -= NUMBEROFLINES;
+        }
+        else
+        {
+            // Scrolling up when close to top takes us up to the top and then from the top back to the bottom of the menu
+            if (CheckEqZero(startingMenuItem))
+            {
+                startingMenuItem = menuNumberOfEntries - NUMBEROFLINES;
+            }
+            else
+            {
+                startingMenuItem = 0;
+            }
+        }
+    }
+    if (Scroll_Down == scrollDirection)
+    {
+        if (startingMenuItem+NUMBEROFLINES < menuNumberOfEntries)
+        {
+            startingMenuItem += NUMBEROFLINES;
+        }
+        else
+        {
+            startingMenuItem = 0;    // Scroll back to top
+        }
+    }
+    if (Scroll_Top == scrollDirection)
+    {
+        startingMenuItem = 0;
+    }
+    if (Scroll_Bottom == scrollDirection)
+    {
+        if (menuNumberOfEntries > NUMBEROFLINES)
+        {
+            startingMenuItem = menuNumberOfEntries - NUMBEROFLINES;
+        }
+        else
+        {
+            startingMenuItem = 0;
+        }
+    }
+    if (Scroll_Middle == scrollDirection)
+    {
+        if (menuNumberOfEntries > NUMBEROFLINES)
+        {
+            startingMenuItem = (menuNumberOfEntries - NUMBEROFLINES) / 2;
+        }
+        else
+        {
+            startingMenuItem = 0;
+        }
+    }
 
-	// Ok - we 'scrolled' - go get the menu items and have the pretty GUI filled in now...
-	// We remember the location on user menus (1-10) - for all others we do NOT remember where we scrolled to...
-	// We also remember for the inventory menu - can't calculate the index... it's always the last one...
-	i = -1;
-	if (IsUserMenu(menuLinkId))
-		i = activeMenuIndex-1;
-	else
-	{
-		if (Define_INVENTORYANIMLINKID == menuLinkId)
-			i = Define_MaxMenuNumber;
-	}
-	if (i != -1)		
-		menuStartItem = ReplaceListEntry(menuStartItem, [startingMenuItem], i);
+    // Ok - we 'scrolled' - go get the menu items and have the pretty GUI filled in now...
+    // We remember the location on user menus (1-10) - for all others we do NOT remember where we scrolled to...
+    // We also remember for the inventory menu - can't calculate the index... it's always the last one...
+    i = -1;
+    if (IsUserMenu(menuLinkId))
+    {
+        i = activeMenuIndex-1;
+    }
+    else
+    {
+        if (Define_INVENTORYANIMLINKID == menuLinkId)
+        {
+            i = Define_MaxMenuNumber;
+        }
+    }
+    if (CheckNeqMinusOne(i))
+    {
+        menuStartItem = ReplaceListEntry(menuStartItem, [startingMenuItem], i);
+    }
 
-	MessageGetMenuRange(menuLinkId, startingMenuItem, NUMBEROFLINES, Define_UILINKID);
+    MessageGetMenuRange(menuLinkId, startingMenuItem, NUMBEROFLINES, Define_UILINKID);
 }
 
 
@@ -354,186 +394,233 @@ ScrollMenu(integer scrollDirection)
 // Inventory is special too - just handle it as a unique number in the remembered menus
 GoToMenu(integer menulink)
 {
-	i = -1;									// Assume we start at the first item
-	if (IsUserMenu(menulink))				// User menus start where we left off... could be zero or anything
-		i = menulink-MenuBaseNumber;
-	if (Define_INVENTORYANIMLINKID == menulink)
-		i = Define_MaxMenuNumber;
-	if (i != -1)
-		i = llList2Integer(menuStartItem, i);
-	else
-		i = 0;
-	
-	MessageGetMenuRange(menulink, i, NUMBEROFLINES, Define_UILINKID);
+    i = -1;                                    // Assume we start at the first item
+    if (IsUserMenu(menulink))                // User menus start where we left off... could be zero or anything
+    {
+        i = menulink-MenuBaseNumber;
+    }
+    if (Define_INVENTORYANIMLINKID == menulink)
+    {
+        i = Define_MaxMenuNumber;
+    }
+    if (CheckNeqMinusOne(i))
+    {
+        i = llList2Integer(menuStartItem, i);
+    }
+    else
+    {
+        i = 0;
+    }
+    
+    MessageGetMenuRange(menulink, i, NUMBEROFLINES, Define_UILINKID);
 }
 
 StopAllDancing(integer stopAllFlag)
 {
-	MessageStopAllDancing(stopAllFlag);
+    MessageStopAllDancing(stopAllFlag);
 
-	if (NO_HIGHLIGHT != highlightMe)
-	{
-		if (primMeUp)
-			SetPrimMenuItem(highlightMe-startingMenuItem);
-	}
+    if (NO_HIGHLIGHT != highlightMe)
+    {
+        if (primMeUp)
+        {
+            i = highlightMe-startingMenuItem;
+            z = llList2String(menuItems,i);
+            SetPrimText(i,z);
+        }
 
-	// Leaving dancing means we also forget all of the highlights
-	highlightMe = NO_HIGHLIGHT;
-	highlightLinkid = NO_HIGHLIGHT;
-	highlightName = "";
+    }
+
+    // Leaving dancing means we also forget all of the highlights
+    highlightMe = NO_HIGHLIGHT;
+    highlightLinkid = NO_HIGHLIGHT;
+    highlightName = "";
 }
 
 // Handle the setting of the menu - so stop what we were doing and then start the new thing
 // We do NOT change the menu for going to dancing or turning off the HUD
 DoSetMode(integer setMode, integer getWaitSequenceToo, integer superStop)
 {
-	integer gotoThisMenu = -1;
+    integer gotoThisMenu = -1;
 
-	// If we are going to the same mode as we are already in - no reason to do anything
-	//  so we just return.
-	if ((setMode == mode) && !superStop)
-	{
-		Trace("DoSetMode", "Changing to the same mode - no reason to stop anything");
-	
-		// For going to AO - turn on the AO menu - we don't have a button to get here otherwise...
-		//  this allows us to click 'AO' and get the AO menu while we have the AO on already.
-		if (mode == Mode_AO)
-			GoToMenu(Define_AOMENULINKID);
-		return;
-	}
-
-
-	// First we need to 'stop' the previous mode - mostly this is simply to ensure that
-	// we transition from AO -> dance   or dance -> AO
-	if ((Mode_AO == mode) || superStop)	// We were in AO mode - stop it and go back to either the last user menu or inventory (in case the user NEVER got to a user menu)
-	{
-		MessageTurnOffAO();
-		i = Define_INVENTORYANIMLINKID;
-		if (-1 != prevUserMenuLinkId)
-			i = prevUserMenuLinkId;
-		gotoThisMenu = i;
-	}
-	
-	// If we were in a dance mode then stop dancing - we forget all of the dancers this way...
-	if ((Mode_Dancing == mode) || superStop)
-		StopAllDancing(TRUE);
-
-
-	// Now we start up the new mode...
-	// For AO - it's easy - just turn it on.
-	if (Mode_AO == setMode)
-	{
-		MessageTurnOnAO();
-		gotoThisMenu = Define_AOMENULINKID;
-	}
-
-	if (Mode_Dancing == setMode)
-	{
-		key owner = llGetOwner();
-
-		if (getWaitSequenceToo)
-			MessageGetWait(Define_DANCECONTROLLINKID);		// Optionally start a wait sequence right away - the user gets to start the dances...
-		MessageAddDancer(llKey2Name(owner), owner);		// Add the owner
-	}
-	
-	mode = setMode;
-
-	// And for when we are not minimized - set the prim to show the correct mode being used...
-	if (primMeUp)
-	{
-		p = llParseString2List(GetPrimModeOffsets(mode), [","], []);
-	    llSetLinkPrimitiveParamsFast(PRIMMODELINK, [ PRIM_TEXTURE, frontSide, primTexture,
-	    								<llList2Float(p,0), llList2Float(p,1), 0.0>,
-	    								<llList2Float(p,2), llList2Float(p,3), 0.0>, 0 ]);
-	   Trace("DoSetMode","On/Dance/AO prim set to index:"+(string)mode);
+    // If we are going to the same mode as we are already in - no reason to do anything
+    //  so we just return.
+    if ((setMode == mode) & !superStop)
+    {
+        Trace("DoSetMode", "Changing to the same mode - no reason to stop anything");
+    
+        // For going to AO - turn on the AO menu - we don't have a button to get here otherwise...
+        //  this allows us to click 'AO' and get the AO menu while we have the AO on already.
+        if (mode == Mode_AO)
+        {
+            GoToMenu(Define_AOMENULINKID);
+        }
+        return;
     }
 
-	// Ok - if we are changing menus - now is the time
-	if (gotoThisMenu != -1)
-		GoToMenu(gotoThisMenu);	
+
+    // First we need to 'stop' the previous mode - mostly this is simply to ensure that
+    // we transition from AO -> dance   or dance -> AO
+    if ((Mode_AO == mode) || superStop)    // We were in AO mode - stop it and go back to either the last user menu or inventory (in case the user NEVER got to a user menu)
+    {
+        MessageTurnOffAO();
+        i = Define_INVENTORYANIMLINKID;
+        if (CheckNeqMinusOne(prevUserMenuLinkId))
+        {
+            i = prevUserMenuLinkId;
+        }
+        gotoThisMenu = i;
+    }
+    
+    // If we were in a dance mode then stop dancing - we forget all of the dancers this way...
+    if ((Mode_Dancing == mode) || superStop)
+    {
+        StopAllDancing(TRUE);
+    }
+
+    // Now we start up the new mode...
+    // For AO - it's easy - just turn it on.
+    if (Mode_AO == setMode)
+    {
+        MessageTurnOnAO();
+        gotoThisMenu = Define_AOMENULINKID;
+    }
+
+    if (Mode_Dancing == setMode)
+    {
+        key owner = llGetOwner();
+
+        if (getWaitSequenceToo)
+        {
+            MessageGetWait(Define_DANCECONTROLLINKID);        // Optionally start a wait sequence right away - the user gets to start the dances...
+        }
+        MessageAddDancer(llKey2Name(owner), owner);        // Add the owner
+    }
+    
+    mode = setMode;
+
+    // And for when we are not minimized - set the prim to show the correct mode being used...
+    if (primMeUp)
+    {
+        p = llParseString2List(GetPrimModeOffsets(mode), [","], []);
+        llSetLinkPrimitiveParamsFast(PRIMMODELINK, [ PRIM_TEXTURE, frontSide, primTexture,
+                                        <llList2Float(p,0), llList2Float(p,1), 0.0>,
+                                        <llList2Float(p,2), llList2Float(p,3), 0.0>, 0 ]);
+       Trace("DoSetMode","On/Dance/AO prim set to index:"+(string)mode);
+    }
+
+    // Ok - if we are changing menus - now is the time
+    if (CheckNeqMinusOne(gotoThisMenu))
+    {
+        GoToMenu(gotoThisMenu);
+    }
 }
 
 
 DrawTexture(integer link, string coords, integer face)
 {
-	p = llParseString2List(coords, [","], []);
+    p = llParseString2List(coords, [","], []);
     llSetLinkPrimitiveParamsFast(link,
-    		[ PRIM_COLOR, face, primColorWhite, 1.0,
-    		  PRIM_COLOR, backSide, primBackgroundColor, primBackAlphaLevel,
-	    	  PRIM_TEXTURE, face, primTexture,
-    			<llList2Float(p,0), llList2Float(p,1), 0.0>,
-    			<llList2Float(p,2), llList2Float(p,3), 0.0>, 0 ]);
+            [ PRIM_COLOR, face, primColorWhite, primColorAlpha,
+              PRIM_COLOR, backSide, primBackgroundColor, primBackAlphaLevel,
+              PRIM_TEXTURE, face, primTexture,
+                <llList2Float(p,0), llList2Float(p,1), 0.0>,
+                <llList2Float(p,2), llList2Float(p,3), 0.0>, 0 ]);
 }
 
 
 RepaintPrims()
 {
-	integer numberPrims = llGetNumberOfPrims();
-	string s;
+    integer numberPrims = llGetNumberOfPrims();
+    string s;
 
-	// Retexture the whole HUD - getting out the paintbrush - here we go...
-	DrawTexture(LINK_ROOT, primTitleBarOffset, frontSide);
-	
-	// Redraw top texture
+    // Retexture the whole HUD - getting out the paintbrush - here we go...
+
+    // Title bar first...
+    llSetLinkPrimitiveParamsFast(LINK_ROOT,
+            [ PRIM_COLOR, frontSide, primColorWhite, primColorAlpha,
+              PRIM_COLOR, backSide, primBackgroundColor, primBackAlphaLevel,
+              PRIM_TEXTURE, frontSide, primTexture, <primTitleBar0, primTitleBar1, 0.0>, <primTitleBar2, primTitleBar3, 0.0>, 0 ]);
+    
+    // Redraw top texture
     llSetLinkPrimitiveParamsFast(LINK_ROOT, [
-                PRIM_COLOR, topSide, primColorWhite, 1.0,
-				PRIM_TEXTURE, topSide, primTexture, <0.5, 0.025, 0.0>, <0.75, -0.454, 0.0>, -PI_BY_TWO ]);	
-	
-	// Paint everything else now :-)
-	//  skipping the root prim (prims start at #2)
-	for (i=1; i<numberPrims; ++i)
-	{
-		s = llGetLinkName(i+1);
-		p = llParseString2List(s, [",",":"], []);
-		
-		// What to paint it? Decide based on the name of the prim... we are looking for four specific prims
-		//  Scroll (scroll buttons), Numbers (for menu of user menus), and Mode (for AO/Dance/Off - mode prim)
-        if (-1 != llListFindList(p, ["Scroll"]))
-        	DrawTexture(i+1, primScrollButtonOffset, frontSide);
+                PRIM_COLOR, topSide, primColorWhite, primColorAlpha,
+                PRIM_TEXTURE, topSide, primTexture, <0.5, 0.025, 0.0>, <0.75, -0.454, 0.0>, -PI_BY_TWO ]);    
+    
+    // Paint everything else now :-)
+    //  skipping the root prim (prims start at #2)
+    for (i=1; i<numberPrims; ++i)
+    {
+        s = llGetLinkName(i+1);
+        p = llParseString2List(s, [",",":"], []);
+        
+        // What to paint it? Decide based on the name of the prim... we are looking for four specific prims
+        //  Scroll (scroll buttons), Numbers (for menu of user menus), and Mode (for Dance/Off - mode prim)
+        if (CheckNeqMinusOne(llListFindList(p, ["Scroll"])))
+        {
+            DrawTexture(i+1, primScrollButtonOffset, frontSide);
+        }
         else
         {
-	        if (-1 != llListFindList(p, ["Numbers"]))
-	        	DrawTexture(i+1, GetPrimMenuOffsets(NO_MENU_INDEX), frontSide);
-	        else
-	        {
-		        if (-1 != llListFindList(p, ["Mode"]))
-		        	DrawTexture(i+1, GetPrimModeOffsets(Mode_Off), frontSide);
-		        else
-		        {
-		        	if (-1 != llListFindList(p, ["Half"]))
-		        	{
-		        		DrawTexture(i+1, llList2String(primMoreButtonsOffsets, autoInvite), frontSide);
-		        	}
-		        	else
-			        	// Carefully we make sure the WHOLE of every prim is transparent, BUT the front has the specified alpha layer - this will let the top shine through on a rotate
-				        llSetLinkPrimitiveParamsFast(i+1, [ PRIM_FULLBRIGHT, ALL_SIDES, FALSE, PRIM_COLOR, ALL_SIDES, primBackgroundColor, 0.0,
-				        									PRIM_COLOR, frontSide, primBackgroundColor, primBackgroundAlpha,
-	    									    		  	PRIM_COLOR, backSide, primBackgroundColor, primBackAlphaLevel ]);
-    			}
-	        }
-        }	
-	}
+            if (CheckNeqMinusOne(llListFindList(p, ["Numbers"])))
+            {
+                DrawTexture(i+1, GetPrimMenuOffsets(NO_MENU_INDEX), frontSide);
+            }
+            else
+            {
+                if (CheckNeqMinusOne(llListFindList(p, ["Mode"])))
+                {
+                    DrawTexture(i+1, GetPrimModeOffsets(Mode_Off), frontSide);
+                }
+                else
+                {
+                    if (CheckNeqMinusOne(llListFindList(p, ["Half"])))
+                    {
+                        DrawTexture(i+1, llList2String(primMoreButtonsOffsets, autoInvite), frontSide);
+                    }
+                    else
+                    {
+                        if (CheckNeqMinusOne(llListFindList(p, ["MenuItem"])))
+                        {
+                            DrawTexture(i+1, primMenuItemOffsets, frontSide);
+                        }
+                        else
+                        {
+                            // Carefully we make sure the WHOLE of every prim is transparent, BUT the front has the specified alpha layer - this will let the top shine through on a rotate
+                            // We do this for 3 prims: Menu prim and 2 x HScroll
+                            llSetLinkPrimitiveParamsFast(i+1, [ PRIM_FULLBRIGHT, ALL_SIDES, FALSE,
+                                    PRIM_COLOR, ALL_SIDES, primBackgroundColor, 0.0,
+                                    PRIM_COLOR, frontSide, primColorWhite, primColorAlpha,
+                                    PRIM_COLOR, backSide, primBackgroundColor, primBackAlphaLevel ]);
+                            DrawTexture(i+1, primMenuItemOffsets, frontSide);
+                        }
+                    }
+                }
+            }
+        }    
+    }
 }
 
 
 // Determine how 'High' a prim is so we know where the clicks matter :-)
 SearchForVerticalPrimSize()
 {
-	vector primSize;
-	integer searchForMe;
+    vector primSize;
+    integer searchForMe;
 
-	// Get the size of menu item # 5 - this is far enough down that it has to be scaled correctly
-	primSize = llList2Vector(llGetLinkPrimitiveParams(PRIMMENUCLICKSITEM5, [ PRIM_SIZE ]), 0);
-	searchForMe = llRound(primSize.z * 10000.0);
-	
-	// Floating point numbers are inaccurate - but that's what we got from the size of the first menu prim.
-	//  So scale it up to an integer (*10000 and round it up) then search for it. If we fail to find the vertical
-	//  size, then we will have to loop through and find the approximate one (so plus or minus 2 is a good range)
-	
-	verticalSize = llListFindList(hudHeightSettings, [ searchForMe ]);	// Lookup current vertical size index
-	if (verticalSize == -1)
-		verticalSize = 0;	// Default is the smallest size - if we can't figure it out - we guess lil
-							// This will cause troubles for anyone who manually resizes... (shrug) oh well...
+    // Get the size of menu item # 5 - this is far enough down that it has to be scaled correctly
+    primSize = llList2Vector(llGetLinkPrimitiveParams(PRIMMENUCLICKSITEM5, [ PRIM_SIZE ]), 0);
+    searchForMe = llRound(primSize.z * 10000.0);
+    
+    // Floating point numbers are inaccurate - but that's what we got from the size of the first menu prim.
+    //  So scale it up to an integer (*10000 and round it up) then search for it. If we fail to find the vertical
+    //  size, then we will have to loop through and find the approximate one (so plus or minus 2 is a good range)
+    
+    verticalSize = llListFindList(hudHeightSettings, [ searchForMe ]);    // Lookup current vertical size index
+    if (CheckEqMinusOne(verticalSize))
+    {
+        verticalSize = 0;    // Default is the smallest size - if we can't figure it out - we guess lil
+                            // This will cause troubles for anyone who manually resizes... (shrug) oh well...
+    }
 }
 
 
@@ -543,666 +630,763 @@ SearchForVerticalPrimSize()
 //  option (as they don't care) - but menu/inventory for dance selection will see it.
 SendSelectMessage(integer p1, integer p2)
 {
-	if (deferredMode)
-		MessageSelectNumberDeferred(p1, p2);
-	else
-		MessageSelectNumber(p1, p2);
+    if (deferredMode)
+    {
+        MessageSelectNumberDeferred(p1, p2);
+    }
+    else
+    {
+        MessageSelectNumber(p1, p2);
+    }
 }
 
+ResetUI()
+{
+    // If we were NOT prim'd up - then we need to rotate back down in position on a reset
+    if (!primMeUp)
+    {
+        vector eul = <0,0,0>; //0 degrees around the y-axis, in Euler form
+        eul *= DEG_TO_RAD; //convert to radians
+        rotation quat = llEuler2Rot(eul); //convert to quaternion
+        llSetLinkPrimitiveParamsFast(LINK_THIS,[ PRIM_ROTATION, quat ]);
+        primMeUp = TRUE;
+    }
+
+    // Reset the textures/colors/transparency
+    primColorAlpha = 1.0;                       // Solid colors - no transparency
+    primTextColorNormal = <1.0, 1.0, 1.0>;      // Default of white as hover text
+    primTextColorHighlight = <0.0, 1.0, 0.0>;   // Default of green for highlighted text
+
+    // Clear off any text settings from the whole menu
+    llSetLinkPrimitiveParamsFast(PRIMMENUNAMELINK, [ PRIM_TEXT, "", primTextColorNormal, primTextColorAlpha ]);
+    for (i=0; i < NUMBEROFLINES; ++i)
+    {
+        SetPrimText(i, "");
+    }
+    
+    primTexture = DefaultThemeName;
+    RepaintPrims();
+    
+    SetInitialMessage();
+}
 
 default
 {
-	state_entry()
-	{
-		// Since we know where the prims are - look up the size so we know where clicks work correctly :-)
-		SearchForVerticalPrimSize();
-		DoSetMode(Mode_Off,FALSE,FALSE);
-		prevUserMenuLinkId = Define_MENULISTLINKID+1;		// Setup to pretend that we return to menu 1 on anything but don't actually do it at all
-	}
+    state_entry()
+    {
+        // Since we know where the prims are - look up the size so we know where clicks work correctly :-)
+        SearchForVerticalPrimSize();
+        DoSetMode(Mode_Off,FALSE,FALSE);
+        prevUserMenuLinkId = Define_MENULISTLINKID+1;        // Setup to pretend that we return to menu 1 on anything but don't actually do it at all
+        
+        ResetUI();
+    }
 
-	// Deferred mode starts/stops by click and hold on the dance button - we know this happens by timing
-	//  the interval betweeen a click on the dance button (we have to figure that out) and when the click ends.
-	//  By doing it this way - the advanced user can change deferred mode on/off without any additions to the UI.	
-	touch_start(integer count)
-	{
-		integer link = llDetectedLinkNumber(0);
+    // Deferred mode starts/stops by click and hold on the dance button - we know this happens by timing
+    //  the interval betweeen a click on the dance button (we have to figure that out) and when the click ends.
+    //  By doing it this way - the advanced user can change deferred mode on/off without any additions to the UI.    
+    touch_start(integer count)
+    {
+        integer link = llDetectedLinkNumber(0);
 
-		llResetTime();
-		clickStartedOnWhichLink = -1;
+        llResetTime();
+        clickStartedOnWhichLink = -1;
 
-		// Check for the mode prim and that the user clicked the center of the prim (dance is there)
-    	if (PRIMMODELINK == link)
-			clickStartedOnWhichLink = link;
+        // Check for the mode prim and that the user clicked the center of the prim (dance is there)
+        if (PRIMMODELINK == link)
+        {
+            clickStartedOnWhichLink = link;
+        }
 
-    	if (-1 != llListFindList(PRIMSCROLLLINKS, [link]))
-    		clickStartedOnWhichLink = link;	// Got a scroll link somehow (hoping for stop) 
-	}
+        if (CheckNeqMinusOne(llListFindList(PRIMSCROLLLINKS, [link])))
+        {
+            clickStartedOnWhichLink = link;    // Got a scroll link somehow (hoping for stop) 
+        }
+    }
 
-	// Handle touching of prims - we do these in order of most likely by the user
-	touch_end(integer count)
-	{
-		integer link = llDetectedLinkNumber(0);
-    	vector clicked = llDetectedTouchST(0);
-    	integer danceMenu;
-		integer duration = llFloor(llGetAndResetTime());
-		integer menuItemClicked = FALSE;
-    	
-		// Check for one of the menu items (a dance or something)
-    	i = llListFindList(PRIMMENUCLICKS, [link]);
-    	if (-1 != i)
-    	{
-			// On clicking a menu item prim - there is a dividing line - below it will be the
-			//  current menu item. Above this 'line' is the menu item above. So let's check
-			//  the percentage table based on the size of the current prims and if we clicked
-			//  above the percentage, then we backup to the previous menu item
-			if (llFloor(clicked.y*100) > llList2Integer(clickPositions, verticalSize))
-			{
-				i--;
-				if (i == -1)	// If we clicked low on the bottom menu item - we stay there...
-					i = 0;
-			}
-			menuItemClicked = TRUE;
-		}
+    // Handle touching of prims - we do these in order of most likely by the user
+    touch_end(integer count)
+    {
+        integer link = llDetectedLinkNumber(0);
+        vector clicked = llDetectedTouchST(0);
+        integer danceMenu;
+        integer duration = llFloor(llGetAndResetTime());
+        integer menuItemClicked = FALSE;
 
-		if (link == TOP_BLANK_ARROWS_PRIM)
-		{
-		 	if (llFloor(clicked.y*100) > llList2Integer(clickPositions, verticalSize))
-		 	{
-		 		i = 0;	// if we back up on the blank prim, we go to the first menu item
-		 		menuItemClicked = TRUE;
-		 	}
-		}
+        if (updateInProgress)
+        {
+            llOwnerSay("Update is in progress... please wait for the update to complete...");
+            return;
+        }
+        
+        // Check for one of the menu items (a dance or something)
+        if ((link <= PRIMMENUMAX) & (link >= PRIMMENUMIN))
+        {
+            // On clicking a menu item prim - there is a dividing line - below it will be the
+            //  current menu item. Above this 'line' is the menu item above. So let's check
+            //  the percentage table based on the size of the current prims and if we clicked
+            //  above the percentage, then we backup to the previous menu item
+            i = GETMENUCLICKSNUMBER(link);
+            if (llFloor(clicked.y*100) > llList2Integer(clickPositions, verticalSize))
+            {
+                i--;
+                if (CheckEqMinusOne(i))    // If we clicked low on the bottom menu item - we stay there...
+                {
+                    i = 0;
+                }
+            }
+            menuItemClicked = TRUE;
+        }
 
-		if (menuItemClicked)
-		{
-    		if (i >= menuLength)
-    			return;	// Clicked past end of the list - nothing to do
-			
-    		danceMenu = IsUserMenu(menuLinkId) || (Define_INVENTORYANIMLINKID == menuLinkId);
-    		if ((mode != Mode_Dancing) && danceMenu)
-    			DoSetMode(Mode_Dancing,FALSE,FALSE);
+        if (link == TOP_BLANK_ARROWS_PRIM)
+        {
+             if (llFloor(clicked.y*100) > llList2Integer(clickPositions, verticalSize))
+             {
+                 i = 0;    // if we back up on the blank prim, we go to the first menu item
+                 menuItemClicked = TRUE;
+             }
+        }
 
-			// If we were already dancing this dance (i.e. on the same menu still and highlighted) then a click on the right side will sync dancers
-    		if ((llFloor(clicked.x*10) == 9) && (mode == Mode_Dancing) && (i == (highlightMe-startingMenuItem)))
-    		{
-	    		MessageSyncAllDancers();
-	    		return;
-	    	}
+        if (menuItemClicked)
+        {
+            if (i >= menuLength)
+            {
+                return;    // Clicked past end of the list - nothing to do
+            }
+            
+            danceMenu = IsUserMenu(menuLinkId) || (Define_INVENTORYANIMLINKID == menuLinkId);
+            if ((mode != Mode_Dancing) & danceMenu)
+            {
+                DoSetMode(Mode_Dancing,FALSE,FALSE);
+            }
 
-
-			p = llParseString2List(llList2String(menuParams, i), ["|"], []);
-			SendSelectMessage(llList2Integer(p,0), llList2Integer(p,1));
-    		return;
-    	}
-		
-    	if (-1 != llListFindList(PRIMSCROLLLINKS, [link]))
-    	{
-	    	link = llList2Integer([Scroll_Top, Scroll_Up, Scroll_Middle, Scroll_Down, Scroll_Bottom, Scroll_Wait], llFloor(clicked.x*6));
-	    	if (Scroll_Wait != link)
-	    		ScrollMenu(link);
-	    	else
-	    	{
-	    		if (mode != Mode_Dancing)	// Clicking stop is going to start a dance - so into dance mode you go
-	    			DoSetMode(Mode_Dancing,FALSE,FALSE);
-
-				// If we got a LONG click (like 1+second) on 'stop' then we just stop all dancers and stay in dance mode
-				if ((clickStartedOnWhichLink != -1) && (duration >= 1))
-					StopAllDancing(FALSE);
-				else
-		    		MessageGetWait(Define_DANCECONTROLLINKID);
-	    	}
-	    	return;
-    	}
-
-		// Check for the menu #'s prim
-		if (PRIMMENUSLINK == link)
-    	{
-	    	i = llFloor(clicked.x*12);	// We have 12 mode buttons on the prim (1-10,I,A)
-	    	
-	    	GoToMenu(llList2Integer(MENULINKIDLOOKUP,i+1));	// We have a pretty list of menu items<->linkid's - so lookup the link id and go there
-		    return;
-	    }
-		
-		// Check for the mode prim
-    	if (PRIMMODELINK == link)
-    	{
-			integer superStop = FALSE;
-
-    		// We have 3 mode buttons on the mode prim
-	    	danceMenu = llFloor(clicked.x*3);	// Determine which button/mode the user just went into (0==off, 1==dance, 2==ao)
-
-			// Check for super stop mode - long hold of off button means stop stop stop everything - even when we think it's been stopped already.
-			if ((danceMenu == 0) && (clickStartedOnWhichLink == link) && (duration >= 1))
-			{
-				OwnerSay("CMSG009", []);
-				superStop = TRUE;
-			}
-
-			DoSetMode(llList2Integer([Mode_Off, Mode_Dancing, Mode_AO], danceMenu), TRUE, superStop);
-			
-			// Now we see if we can toggle the deferred mode in dance mode - if the user clicked on dance
-			//  and held down the button for a second - then we toggle deferred mode - on or off and tell
-			//  the user what happened.
-			if ((danceMenu == 1) && (clickStartedOnWhichLink == link) && (duration >= 1))
-			{
-				deferredMode = deferredMode ^ TRUE;
-				OwnerSay("CMSG008", [ llList2String(["Off","On"], deferredMode) ]);
-			}
-			
-			return;
-		}
-		
-		// Clicked on the second row of buttons? (auto invite is here!)  - FIXME? - we could do more here... more buttons or move the autoinvite...
-		if (PRIMMOREBUTTONS == link)
-		{
-    		// Not sure how many buttons here - but probably 12 of them - just a guess - have no idea
-	    	danceMenu = llFloor(clicked.x*12);	// Right most area is where we toggle the auto invite
-
-			if (danceMenu == 11)
-			{
-				if (autoInvite)
-				{
-					OwnerSay("CMSG017", []);
-					autoInvite = FALSE;
-				}
-				else
-				{
-					OwnerSay("CMSG016", [DanceScanThisFar]);
-					autoInvite = TRUE;
-				}
-				p = llParseString2List(llList2String(primMoreButtonsOffsets, autoInvite), [","], []);
-			    llSetLinkPrimitiveParamsFast(PRIMMOREBUTTONS, [ PRIM_TEXTURE, frontSide, primTexture,
-			    								<llList2Float(p,0), llList2Float(p,1), 0.0>,
-			    								<llList2Float(p,2), llList2Float(p,3), 0.0>, 0 ]);
-			    MessageDCAutoInvite(autoInvite);	// Do whatever we need to for auto invite...
-			}
-			return;
-		}
+            // If we were already dancing this dance (i.e. on the same menu still and highlighted) then a click on the right side will sync dancers
+            if ((llFloor(clicked.x*10) == 9) & (mode == Mode_Dancing) & (i == (highlightMe-startingMenuItem)))
+            {
+                MessageSyncAllDancers();
+                return;
+            }
 
 
-		// Clicked on the root prim? Either go to a web page or rotate 90 degrees to be 'hide' - mostly webpage, hide on right side only
-		if (LINK_ROOT == link)
-		{
-			// If we are showing the prims - then clicks go 90% to website - 10% to rotate
-			if (primMeUp)
-			{
-		    	if (llFloor(clicked.x*10) < 9)
-		    		llLoadURL(llDetectedKey(0), CompanyName+" "+ProductName+" documentation", DanceHUDDocumentation);
-		    	else
-		    	{
-		    		// Just rotate up and back down - turning off the prim updates while we do it
-		    		if (primMeUp)
-		    		{
-		    			vector eul = <0,-90,0>; //-90 degrees around the y-axis, in Euler form - rotates up to show the top prim
-						eul *= DEG_TO_RAD; //convert to radians
-						rotation quat = llEuler2Rot(eul); //convert to quaternion
-					    llSetPrimitiveParams([ PRIM_ROTATION, quat ]);	// We could probably use the root item and do the same... time delay doesn't matter here....
-					    
-						// Clear all of the hover text
-						llSetLinkPrimitiveParamsFast(PRIMMENUNAMELINK, [ PRIM_TEXT, "", primTextColorNormal, primTextColorAlpha ]);
-			    		for (i=0; i < NUMBEROFLINES; ++i)
-			    			SetPrimText(i, "");
-			    
-					    primMeUp = FALSE;
-					}
-		    	}
-	    	}
-			else
-			{
-				// If we were NOT prim'd up - then any click takes us back to showing the prims - rotate back down
-#ifdef BUILD_FOR_SL
-    			vector eul = <0,0,0>; //0 degrees around the y-axis, in Euler form (absolute rotation in SL)
-#endif
-#ifdef BUILD_FOR_OPENSIM
-    			vector eul = <0,90,0>; //0 degrees around the y-axis, in Euler form (this normalizes back to 0 degrees - additive on opensim)
-#endif
-				eul *= DEG_TO_RAD; //convert to radians
-				rotation quat = llEuler2Rot(eul); //convert to quaternion
-			    llSetPrimitiveParams([ PRIM_ROTATION, quat ]);
+            p = llParseString2List(llList2String(menuParams, i), ["|"], []);
+            SendSelectMessage(llList2Integer(p,0), llList2Integer(p,1));
+            return;
+        }
+        
+        if (CheckNeqMinusOne(llListFindList(PRIMSCROLLLINKS, [link])))
+        {
+            link = llList2Integer([Scroll_Top, Scroll_Up, Scroll_Middle, Scroll_Down, Scroll_Bottom, Scroll_Wait], llFloor(clicked.x*6));
+            if (Scroll_Wait != link)
+            {
+                ScrollMenu(link);
+            }
+            else
+            {
+                if (mode != Mode_Dancing)    // Clicking stop is going to start a dance - so into dance mode you go
+                {
+                    DoSetMode(Mode_Dancing,FALSE,FALSE);
+                }
 
-			    primMeUp = TRUE;
-			    DisplayMenu();	// Get the menu drawn back on the screen pretty-like :-)
-			}
-	    	return;			
-		}
+                // If we got a LONG click (like 1+second) on 'stop' then we just stop all dancers and stay in dance mode
+                if (CheckNeqMinusOne(clickStartedOnWhichLink) && (duration >= 1))
+                {
+                    StopAllDancing(FALSE);
+                }
+                else
+                {
+                    MessageGetWait(Define_DANCECONTROLLINKID);
+                }
+            }
+            return;
+        }
 
-		return;
-	}
+        // Check for the menu #'s prim
+        if (PRIMMENUSLINK == link)
+        {
+            i = llFloor(clicked.x*12);    // We have 12 mode buttons on the prim (1-10,I,A)
+            
+            GoToMenu(llList2Integer(MENULINKIDLOOKUP,i+1));    // We have a pretty list of menu items<->linkid's - so lookup the link id and go there
+            return;
+        }
+        
+        // Check for the mode prim
+        if (PRIMMODELINK == link)
+        {
+            integer superStop = FALSE;
+
+            // We have 3 mode buttons on the mode prim
+            danceMenu = llFloor(clicked.x*3);    // Determine which button/mode the user just went into (0==off, 1==dance, 2==ao)
+
+            // Check for super stop mode - long hold of off button means stop stop stop everything - even when we think it's been stopped already.
+            if (CheckEqZero(danceMenu) && (clickStartedOnWhichLink == link) && (duration >= 1))
+            {
+                OwnerSay("CMSG009", []);
+                superStop = TRUE;
+            }
+
+            DoSetMode(llList2Integer([Mode_Off, Mode_Dancing, Mode_AO], danceMenu), TRUE, superStop);
+            
+            // Now we see if we can toggle the deferred mode in dance mode - if the user clicked on dance
+            //  and held down the button for a second - then we toggle deferred mode - on or off and tell
+            //  the user what happened.
+            if ((danceMenu == 1) & (clickStartedOnWhichLink == link) & (duration >= 1))
+            {
+                deferredMode = deferredMode ^ TRUE;
+                OwnerSay("CMSG008", [ llList2String(["Off","On"], deferredMode) ]);
+            }
+            
+            return;
+        }
+        
+        // Clicked on the second row of buttons? (auto invite is here!)
+        // We could do more here... more buttons or move the autoinvite...
+        if (PRIMMOREBUTTONS == link)
+        {
+            // Not sure how many buttons here - but probably 12 of them - just a guess - have no idea
+            danceMenu = llFloor(clicked.x*12);    // Right most area is where we toggle the auto invite
+
+            if (danceMenu == 11)
+            {
+                if (autoInvite)
+                {
+                    OwnerSay("CMSG017", []);
+                    autoInvite = FALSE;
+                }
+                else
+                {
+                    OwnerSay("CMSG016", [DanceScanThisFar]);
+                    autoInvite = TRUE;
+                }
+                p = llParseString2List(llList2String(primMoreButtonsOffsets, autoInvite), [","], []);
+                llSetLinkPrimitiveParamsFast(PRIMMOREBUTTONS, [ PRIM_TEXTURE, frontSide, primTexture,
+                                                <llList2Float(p,0), llList2Float(p,1), 0.0>,
+                                                <llList2Float(p,2), llList2Float(p,3), 0.0>, 0 ]);
+                MessageDCAutoInvite(autoInvite);    // Do whatever we need to for auto invite...
+            }
+            return;
+        }
 
 
-	// This script is controlled completely by linked messages or clicks
-	link_message(integer sender_num, integer num, string str, key id)
-	{
-		// Optimize for dropping messages very quickly - so not a lot of lag during useless message handling
-		//  think of this as an optimized get out of here quickly check.
-		if (-1 == llListFindList([Define_UILINKID, 0], [num]))
-		{
-		        return; // Not our message - poof - go away quickly
-		}
+        // Clicked on the root prim? Either go to a web page or rotate 90 degrees to be 'hide' - mostly webpage, hide on right side only
+        if (LINK_ROOT == link)
+        {
+            // If we are showing the prims - then clicks go 90% to website - 10% to rotate
+            if (primMeUp)
+            {
+                if (llFloor(clicked.x*10) < 9)
+                {
+                    llLoadURL(llDetectedKey(0), CompanyName+" "+ProductBasicName+" documentation", DanceHUDDocumentation);
+                }
+                else
+                {
+                    // Just clear the menu items, rotate up - turning off the prim updates - so no menu changes will be shown while flipped 'up'
+                    if (primMeUp)
+                    {
+                        // Clear all of the hover text
+                        // This is updated in an async order with the screen... so
+                        // while we are attempting to clear these before the rotate
+                        // what happens is that the rotate happens and then the text
+                        // will disappear... we could do something more... but it's
+                        // a gui race and we don't need to do better... (sigh)
+                        // Not perfect... :(
+                        llSetLinkPrimitiveParamsFast(PRIMMENUNAMELINK, [ PRIM_TEXT, "", primTextColorNormal, primTextColorAlpha ]);
+                        for (i=0; i < NUMBEROFLINES; ++i)
+                        {
+                            SetPrimText(i, "");
+                        }
+                
+                        vector eul = <0,-90,0>; //-90 degrees around the y-axis, in Euler form - rotates up to show the top prim
+                        eul *= DEG_TO_RAD; //convert to radians
+                        rotation quat = llEuler2Rot(eul); //convert to quaternion
+                        llSetLinkPrimitiveParamsFast(LINK_THIS,[ PRIM_ROTATION, quat ]);    // We could probably use the root item and do the same...
 
-		if (Define_UILINKID == num)
-		{
-			integer cmd = (integer)str;
+                        primMeUp = FALSE;
+                    }
+                }
+            }
+            else
+            {
+                // If we were NOT prim'd up - then any click takes us back to showing the prims - rotate back down
+                vector eul = <0,0,0>; //0 degrees around the y-axis, in Euler form (absolute rotation in SL)
+                eul *= DEG_TO_RAD; //convert to radians
+                rotation quat = llEuler2Rot(eul); //convert to quaternion
+                llSetLinkPrimitiveParamsFast(LINK_THIS,[ PRIM_ROTATION, quat ]);
 
-			p = llParseString2List(str, ["|"], []);
+                primMeUp = TRUE;
+                if (lastMenuWasInitialMenu == TRUE)
+                {
+                    SetInitialMessage();
+                }
+                else
+                {
+                    DisplayMenu();    // Get the menu drawn back on the screen pretty-like :-)
+                }
+            }
+            return;            
+        }
 
-			// Handle the requests to us in most popular order
-			//
-			// Each menu change request returns us a list of items - put them on the menu and draw it
-			if ("ITEMS" == llList2String(p,0))
-			{
-				// Get the parameters from the new menu
-				string s;
-				menuName = llList2String(p,1);
-				menuNumberOfEntries = llList2Integer(p,2);
-				startingMenuItem = llList2Integer(p,3);
-				constrainedMenu = llList2Integer(p,4);
-				menuLinkId = llList2Integer(p,5);
-				
-				// Admin menus can have a selected item so remember the temporary highlight so that we make it look selected
-				tempHighlight = NO_HIGHLIGHT;
-				if (llGetListLength(p) > 6)
-					tempHighlight = llList2Integer(p,6);
+        return;
+    }
+
+
+    // This script is controlled completely by linked messages or clicks
+    link_message(integer sender_num, integer num, string str, key id)
+    {
+        if (Define_UILINKID == num)
+        {
+            integer cmd = (integer)str;
+
+            // Handle when we get the end of an update - so the UI is re-enabled
+            // If an update is in progress - we do NOT update the UI... the UI script
+            // is going to be replaced - which will cause all of the scripts to get
+            // reset (necessary on an upgrade) so just re-enable updates and we're done
+            // with any update.
+            if (UI_EndUpdate == cmd)
+            {
+                updateInProgress = 0;
+                return;
+            }
+            if (updateInProgress)
+                return;
+
+            p = llParseString2List(str, ["|"], []);
+
+            // Handle the requests to us in most popular order
+            //
+            // Each menu change request returns us a list of items - put them on the menu and draw it
+            if ("ITEMS" == llList2String(p,0))
+            {
+                // Get the parameters from the new menu
+                string s;
+                menuName = llList2String(p,1);
+                menuNumberOfEntries = llList2Integer(p,2);
+                startingMenuItem = llList2Integer(p,3);
+                constrainedMenu = llList2Integer(p,4);
+                menuLinkId = llList2Integer(p,5);
+                
+                // Admin menus can have a selected item so remember the temporary highlight so that we make it look selected
+                tempHighlight = NO_HIGHLIGHT;
+                if (llGetListLength(p) > 6)
+                {
+                    tempHighlight = llList2Integer(p,6);
+                }
  
-				// if we just got to a user menu - remember it as the menu to return to from other places...
-				if (IsUserMenu(menuLinkId))
-				{
-					prevUserMenuLinkId = menuLinkId;
-					MessageListSetCurrentMenu(menuLinkId);
-					MessageServiceSetActiveMenu(menuLinkId);
-				}
-				
-				// Now parse the menu items into the display names and the parameters
-				p = llParseString2List((string)id,["|||"],[]);
-				menuLength = llGetListLength(p);
-				menuItems = [];
-				menuParams = [];
-				menuSequences = [];
-				for (i=0;i<menuLength;i++)
-				{
-					p2 = llParseString2List(llList2String(p,i),["|"],[]);
-					s = llList2String(p2,0);
-					menuItems = AppendStringToList(menuItems, s);
-					menuParams = AppendStringToList(menuParams, llDumpList2String(DeleteListEntry(p2,0),"|"));
-					if (llList2Integer(p2,1) != Define_COMMENTBLANKLINKID)
-					{
-						integer j;
-						j = llSubStringIndex(s," ");
-						if ((llGetSubString(s, 0, 0) == "#") && (j != -1))
-						{
-							menuSequences = AppendStringToList(menuSequences, llGetSubString(s, j+1, -1));
-						}
-						else
-							menuSequences = AppendStringToList(menuSequences, "|");	// Doesn't start with #<anything><space> - so we can't find this one
-					}
-					else
-						menuSequences = AppendStringToList(menuSequences, "|");	// This is a comment or blank line - can't find it either...
-				}
-				p = [];
-				p2 = [];
+                // if we just got to a user menu - remember it as the menu to return to from other places...
+                if (IsUserMenu(menuLinkId))
+                {
+                    prevUserMenuLinkId = menuLinkId;
+                    MessageListSetCurrentMenu(menuLinkId);
+                    MessageServiceSetActiveMenu(menuLinkId);
+                }
+                
+                // Now parse the menu items into the display names and the parameters
+                p = llParseString2List((string)id,["|||"],[]);
+                menuLength = llGetListLength(p);
+                menuItems = [];
+                menuParams = [];
+                menuSequences = [];
+                for (i=0;i<menuLength;i++)
+                {
+                    q = llParseString2List(llList2String(p,i),["|"],[]);
+                    s = llList2String(q,0);
+                    AppendStringToList(menuItems, s);
+                    q = DeleteListEntry(q,0);
+                    AppendStringToList(menuParams, llDumpList2String(q,"|"));
+                    if (llList2Integer(q,1) != Define_COMMENTBLANKLINKID)
+                    {
+                        j = llSubStringIndex(s," ");
+                        k = (llGetSubString(s, 0, 0) == "#");
+                        if (k && CheckNeqMinusOne(j))
+                        {
+                            AppendStringToList(menuSequences, llGetSubString(s, j+1, -1));
+                        }
+                        else
+                        {
+                            AppendStringToList(menuSequences, "|");    // Doesn't start with #<anything><space> - so we can't find this one
+                        }
+                    }
+                    else
+                    {
+                        AppendStringToList(menuSequences, "|");    // This is a comment or blank line - can't find it either...
+                    }
+                }
+                p = [];
+                q = [];
 
-				// One more thing to calculate is the index of the texture for updating the prim to select this menu...
-				activeMenuIndex = llListFindList(MENULINKIDLOOKUP, [menuLinkId]);
-				if (-1 == activeMenuIndex)
-				{
-					if (Mode_Dancing == mode)
-						activeMenuIndex = ADMIN_MENU_INDEX;
-					else
-						activeMenuIndex = NO_MENU_INDEX;
-				}
-				if ((-1 == activeMenuIndex) && (-1 != llListFindList(OTHERADMINMENULINKIDS, [menuLinkId])))
-					activeMenuIndex = ADMIN_MENU_INDEX;
+                // One more thing to calculate is the index of the texture for updating the prim to select this menu...
+                activeMenuIndex = llListFindList(MENULINKIDLOOKUP, [menuLinkId]);
+                if (CheckEqMinusOne(activeMenuIndex))
+                {
+                    if (Mode_Dancing == mode)
+                    {
+                        activeMenuIndex = ADMIN_MENU_INDEX;
+                    }
+                    else
+                    {
+                        activeMenuIndex = NO_MENU_INDEX;
+                    }
+                }
+                if (CheckEqMinusOne(activeMenuIndex) && CheckNeqMinusOne(llListFindList(OTHERADMINMENULINKIDS, [menuLinkId])))
+                {
+                    activeMenuIndex = ADMIN_MENU_INDEX;
+                }
 
-				highlightMe = NO_HIGHLIGHT;	// If we find a matching name - we'll highlight it correctly
+                highlightMe = NO_HIGHLIGHT;    // If we find a matching name - we'll highlight it correctly
 
-				DisplayMenu();	// And show the user the new pretty menu
-				return;				
-			}
+                lastMenuWasInitialMenu = FALSE;
+                DisplayMenu();    // And show the user the new pretty menu
+                return;                
+            }
 
-			// Handle the select command - respect the constrained menu aspect too
-			if (UI_SelectNumber == cmd)
-			{
-				integer itemNumber = 0;				// Unconstrained # to select from (first one for the same link id through all params)
-				integer maxRange = menuNumberOfEntries;	// Unconstrained # of entries for the WHOLE menu (anything beyond what you can see)
+            // Handle the select command - respect the constrained menu aspect too
+            if (UI_SelectNumber == cmd)
+            {
+                integer itemNumber = 0;                // Unconstrained # to select from (first one for the same link id through all params)
+                integer maxRange = menuNumberOfEntries;    // Unconstrained # of entries for the WHOLE menu (anything beyond what you can see)
 
-				i = (integer)((string)id);			// What # did the user select?
-				if (constrainedMenu == Define_FlagRangeConstrainedMenu)
-				{
-					itemNumber = i-1;				// Constrained # to select is what is on the menu - so our item # (lookup the # to send back)
-					maxRange = menuLength;			// And the range is what is on this menu - no other menu possible
-				}
-					
-				// If the # from the user is in the right range, then get the men parameters (as appropriate) and send a message
-				//  of select to that menu with the selection # (constrained lookup the # to send, unconstrained - just send what we know)
-				if ((i >= 1) && (i <= maxRange))
-				{
-					p = llParseString2List(llList2String(menuParams,itemNumber),["|"],[]);
-					SendSelectMessage(llList2Integer(p,0), llList2Integer([llList2Integer(p,1), i-1], constrainedMenu));
-				}
-				else
-					OwnerSay("CMSG003", [(string)id]);
-				return;
-			}
+                i = (integer)((string)id);            // What # did the user select?
+                if (constrainedMenu == Define_FlagRangeConstrainedMenu)
+                {
+                    itemNumber = i-1;                // Constrained # to select is what is on the menu - so our item # (lookup the # to send back)
+                    maxRange = menuLength;            // And the range is what is on this menu - no other menu possible
+                }
+                    
+                // If the # from the user is in the right range, then get the men parameters (as appropriate) and send a message
+                //  of select to that menu with the selection # (constrained lookup the # to send, unconstrained - just send what we know)
+                if ((i >= 1) & (i <= maxRange))
+                {
+                    p = llParseString2List(llList2String(menuParams,itemNumber),["|"],[]);
+                    SendSelectMessage(llList2Integer(p,0), llList2Integer([llList2Integer(p,1), i-1], constrainedMenu));
+                }
+                else
+                {
+                    OwnerSay("CMSG003", [(string)id]);
+                }
+                return;
+            }
 
-			// Handle the select string command - constrained means we know the strings and HAVE to look up the string
-			//  Unconstrained means we MAY be able to find it on the current menu - but if we can't send it to be looked up
-			if (UI_SelectString == cmd)
-			{
-				i = llListFindList(menuItems, [(string)id]);
-				if (-1 != i)
-				{
-					p = llParseString2List(llList2String(menuParams,i),["|"],[]);
-					SendSelectMessage(llList2Integer(p,0), llList2Integer(p,1));
-				}
-				else
-				{
-					if (constrainedMenu == Define_FlagRangeConstrainedMenu)
-						OwnerSay("CMSG003", [(string)id]);
-					else
-					{
-						// We have a string that is NOT on menu right now - so how do we want to handle it?
-						//
-						// Lots of possibilities - could constrain ourselves to the current menu (seems too limiting)
-						// Instead - we will first check inventory for the animation name and if we find it
-						// then start that animation (well - select it through the inventory menu).
-						//
-						// The secondary search is for ALL of the menus - hoping for just one match.
-						p = llParseString2List(llList2String(menuParams,0),["|"],[]);
-						if (INVENTORY_ANIMATION == llGetInventoryType((string)id))
-						{
-							// Now pretend that inventory was selected and just cause the animations to run.
-							MessageSelect(Define_INVENTORYANIMLINKID, (string)id);
-							return;
-						}
+            // Handle the select string command - constrained means we know the strings and HAVE to look up the string
+            //  Unconstrained means we MAY be able to find it on the current menu - but if we can't send it to be looked up
+            if (UI_SelectString == cmd)
+            {
+                i = llListFindList(menuItems, [(string)id]);
+                if (CheckNeqMinusOne(i))
+                {
+                    p = llParseString2List(llList2String(menuParams,i),["|"],[]);
+                    SendSelectMessage(llList2Integer(p,0), llList2Integer(p,1));
+                }
+                else
+                {
+                    if (constrainedMenu == Define_FlagRangeConstrainedMenu)
+                    {
+                        OwnerSay("CMSG003", [(string)id]);
+                    }
+                    else
+                    {
+                        // We have a string that is NOT on menu right now - so how do we want to handle it?
+                        //
+                        // Lots of possibilities - could constrain ourselves to the current menu (seems too limiting)
+                        // Instead - we will first check inventory for the animation name and if we find it
+                        // then start that animation (well - select it through the inventory menu).
+                        //
+                        // The secondary search is for ALL of the menus - hoping for just one match.
+                        p = llParseString2List(llList2String(menuParams,0),["|"],[]);
+                        if (INVENTORY_ANIMATION == llGetInventoryType((string)id))
+                        {
+                            // Now pretend that inventory was selected and just cause the animations to run.
+                            MessageSelect(Define_INVENTORYANIMLINKID, id);
+                            return;
+                        }
 
-						MessageSelect(Define_MENULISTLINKID, (string)id);
-					}
-				}
-				return;
-			}
+                        MessageSelect(Define_MENULISTLINKID, id);
+                    }
+                }
+                return;
+            }
 
 
-			// At the start of every sequence - we get told so that we can highlight the dance sequence that we started
-			//  this should work for everything - dance sequences AND wait sequences...
-			if (UI_StartedSequence == cmd)
-			{
-				p = llParseString2List((string)id, ["|"], []);
-				i = llList2Integer(p,1);			// link id of menu that started the sequence
-				highlightName = llList2String(p,0);	// Remember the name of the sequence we are dancing
+            // At the start of every sequence - we get told so that we can highlight the dance sequence that we started
+            //  this should work for everything - dance sequences AND wait sequences...
+            if (UI_StartedSequence == cmd)
+            {
+                p = llParseString2List((string)id, ["|"], []);
+                i = llList2Integer(p,1);            // link id of menu that started the sequence
+                highlightName = llList2String(p,0);    // Remember the name of the sequence we are dancing
 
-				// If we have a previous menu item that was highlighted then clear the highlight...
-				if (NO_HIGHLIGHT != highlightMe)
-				{
-					if (primMeUp)
-						SetPrimMenuItem(highlightMe-startingMenuItem);
-				}
+                // If we have a previous menu item that was highlighted then clear the highlight...
+                if (NO_HIGHLIGHT != highlightMe)
+                {
+                    if (primMeUp)
+                    {
+                        j = highlightMe-startingMenuItem;
+                        z = llList2String(menuItems,j);
+                        SetPrimText(j,z);
+                    }
+                }
 
-				highlightMe = NO_HIGHLIGHT;
-				highlightLinkid = i;
-				if (menuLinkId == i)
-				{
-					// Look up the menu item and if we have it - highlight it
-					i = llListFindList(menuSequences, [highlightName]);
-					if (-1 != i)
-					{
-						if (primMeUp)
-							SetPrimMenuItemHL(i);
-							
-						// Remember the item index for now (this can change when the menu scrolls)
-						highlightMe = i+startingMenuItem;
-					}
-				}
-			}
-			
-			// Go to menu is easy peasy - just forward the request with the correct number of menu items to get gotten for us
-			if (UI_GoToMenu == cmd)
-			{
-				GoToMenu((integer)((string)id));
-				return;
-			}
-			
-			// Going back to the user menu simply means go get the range of where we were before...
-			if (UI_ReturnToUserMenu == cmd)
-			{
-				MessageGetMenuRange(prevUserMenuLinkId, llList2Integer(menuStartItem, prevUserMenuLinkId-MenuBaseNumber), NUMBEROFLINES, Define_UILINKID);
-				return;
-			}
-			
-			if (UI_RecordingSequences == cmd)
-			{
-				cmd = (integer)((string)id);
-				if (cmd)
-					UIflags = (FlagMask ^ RecordingFlag) & UIflags ^ RecordingFlag;	// Set the recording bit
-				else
-					UIflags = (FlagMask ^ RecordingFlag) & UIflags;					// Clear the recording bit
-				
-				MessageDCSetRecordingSequences(prevUserMenuLinkId,cmd);	// Send the message to dance control to do it
+                highlightMe = NO_HIGHLIGHT;
+                highlightLinkid = i;
+                if (menuLinkId == i)
+                {
+                    // Look up the menu item and if we have it - highlight it
+                    i = llListFindList(menuSequences, [highlightName]);
 
-				// Currently we do NOT show the recording flag at all in the GUI - if we need this we have it...
-				// The FSLists knows this flag (for the admin menu) and DanceController has it too (for actually recording)
-				// Seems like it's all over and shouldn't be... but we'll ignore that for now...
-				Trace("Link","Recording sequences set UI flags to:"+(string)UIflags);
-				return;
-			}
-			
-			if (UI_SetDanceSelection == cmd)
-			{
-				cmd = (integer)((string)id);
-				if (cmd)
-					UIflags = (FlagMask ^ DanceSelectionFlag) & UIflags ^ DanceSelectionFlag;	// Set the random selection bit
-				else
-					UIflags = (FlagMask ^ DanceSelectionFlag) & UIflags;					// Clear the random selection bit
-				return;
-			}
+                    if (CheckNeqMinusOne(i))
+                    {
+                        if (primMeUp)
+                        {
+                            z = llList2String(menuItems,i);
+                            SetPrimTextHL(i,z);
+                        }
+                            
+                        // Remember the item index for now (this can change when the menu scrolls)
+                        highlightMe = i+startingMenuItem;
+                    }
+                }
+            }
+            
+            // Go to menu is easy peasy - just forward the request with the correct number of menu items to get gotten for us
+            if (UI_GoToMenu == cmd)
+            {
+                GoToMenu((integer)((string)id));
+                return;
+            }
+            
+            // Going back to the user menu simply means go get the range of where we were before...
+            if (UI_ReturnToUserMenu == cmd)
+            {
+                MessageGetMenuRange(prevUserMenuLinkId, llList2Integer(menuStartItem, prevUserMenuLinkId-MenuBaseNumber), NUMBEROFLINES, Define_UILINKID);
+                return;
+            }
+            
+            if (UI_RecordingSequences == cmd)
+            {
+                cmd = (integer)((string)id);
+                if (cmd)
+                {
+                    UIflags = (FlagMask ^ RecordingFlag) & UIflags ^ RecordingFlag;    // Set the recording bit
+                }
+                else
+                {
+                    UIflags = (FlagMask ^ RecordingFlag) & UIflags;                    // Clear the recording bit
+                }
+                
+                MessageDCSetRecordingSequences(prevUserMenuLinkId,cmd);    // Send the message to dance control to do it
 
-			// Handle the 'next dance' select command - just pass it on through to a menu (or inventory)
-			if (UI_SelectNextDance == cmd)
-			{
-				i = 0;
-				if (UIflags & DanceSelectionFlag)
-					i = 1;
+                // Currently we do NOT show the recording flag at all in the GUI - if we need this we have it...
+                // The FSLists knows this flag (for the admin menu) and DanceController has it too (for actually recording)
+                // Seems like it's all over and shouldn't be... but we'll ignore that for now...
+                Trace("Link","Recording sequences set UI flags to:"+(string)UIflags);
+                return;
+            }
+            
+            if (UI_SetDanceSelection == cmd)
+            {
+                cmd = (integer)((string)id);
+                if (cmd)
+                {
+                    UIflags = (FlagMask ^ DanceSelectionFlag) & UIflags ^ DanceSelectionFlag;    // Set the random selection bit
+                }
+                else
+                {
+                    UIflags = (FlagMask ^ DanceSelectionFlag) & UIflags;                    // Clear the random selection bit
+                }
+                return;
+            }
 
-				// Send a get next dance request to the user menu (or inventory)
-				if (Define_INVENTORYANIMLINKID == menuLinkId)
-					MessageSelectNextDance(menuLinkId, i, highlightMe);
-				else
-					MessageSelectNextDance(prevUserMenuLinkId, i, highlightMe);
-				return;
-			}
+            // Handle the 'next dance' select command - just pass it on through to a menu (or inventory)
+            if (UI_SelectNextDance == cmd)
+            {
+                i = 0;
+                if (UIflags & DanceSelectionFlag)
+                {
+                    i = 1;
+                }
 
-			if (UI_SetMode == cmd)
-			{
-				p = llParseString2List(id, ["|"], []);
-				DoSetMode(llList2Integer(p,0), TRUE, llList2Integer(p,1));
-				return;
-			}
+                // Send a get next dance request to the user menu (or inventory)
+                if (Define_INVENTORYANIMLINKID == menuLinkId)
+                {
+                    MessageSelectNextDance(menuLinkId, i, highlightMe);
+                }
+                else
+                {
+                    MessageSelectNextDance(prevUserMenuLinkId, i, highlightMe);
+                }
+                return;
+            }
 
-			if (UI_LoadNotecard == cmd)
-			{
-				MessageLoadSequenceNotecard((string)id, prevUserMenuLinkId);
-				return;
-			}
+            if (UI_SetMode == cmd)
+            {
+                p = llParseString2List(id, ["|"], []);
+                DoSetMode(llList2Integer(p,0), TRUE, llList2Integer(p,1));
+                return;
+            }
 
-			if (UI_RememberSequence == cmd)
-			{
-				MessageRememberSequence(id, prevUserMenuLinkId);
-				return;
-			}
-			
-			if (UI_ShowMenuSequences == cmd)
-			{
-				MessageMenuShowAllSequences(prevUserMenuLinkId);
-				return;
-			}
+            if (UI_LoadNotecard == cmd)
+            {
+                MessageLoadSequenceNotecard((string)id, prevUserMenuLinkId);
+                return;
+            }
 
-			if (UI_ScrollMenu == cmd)
-			{
-				ScrollMenu((integer)((string)id));
-				return;
-			}
+            if (UI_RememberSequence == cmd)
+            {
+                MessageRememberSequence(id, prevUserMenuLinkId);
+                return;
+            }
+            
+            if (UI_ShowMenuSequences == cmd)
+            {
+                MessageMenuShowAllSequences(prevUserMenuLinkId);
+                return;
+            }
 
-			if (UI_SetDeferredMode == cmd)
-			{
-				deferredMode = deferredMode ^ TRUE;
-				OwnerSay("CMSG008", [ llList2String(["Off","On"], deferredMode) ]);
-				return;
-			}
+            if (UI_StartUpdate == cmd)
+            {
+                DoSetMode(0, 0, 0);
+                updateInProgress = 1;
+                if (!primMeUp)
+                {
+                    vector eul = < 0.0, 0.0, 0.0 >;
+                    eul *= 1.745329238e-2;
+                    rotation quat = llEuler2Rot(eul);
+                    primMeUp = 1;
+                }
+                llSetLinkPrimitiveParamsFast(PRIMMENUNAMELINK, [PRIM_TEXT, "Update in progress...", primTextColorNormal, primTextColorAlpha]);
+                for ((i = 0); (i < 30); (++i))
+                    SetPrimText(i, "");
+                return;
+            }
 
-			if (UI_ShowAll == cmd)
-			{
-				llOwnerSay("Currently displaying menu:"+menuName+" and the menu is "+llList2String(["minimized","showing"],primMeUp));
-				llOwnerSay("Mode is set to:"+llList2String(["Off", "Dance", "AO"], mode));
-				llOwnerSay("Deferred freestyle dancing is:"+llList2String(["Off","On"], deferredMode));
-				llOwnerSay("Current theme is:"+primTexture);
-				MessageDCShowAll();
-				return;
-			}
-			
-			if (UI_SelectUserMenu == cmd)
-			{
-				prevUserMenuLinkId = (integer)((string)id);	// Remember the user menu to return to (from the admin menu)
-				return;
-			}
+            if (UI_ScrollMenu == cmd)
+            {
+                ScrollMenu((integer)((string)id));
+                return;
+            }
 
-			if (UI_SetTheme == cmd)
-			{
-				p = llParseString2List((string)id, ["|"], []);
-				primTexture = llList2String(p,0);
+            if (UI_SetDeferredMode == cmd)
+            {
+                deferredMode = deferredMode ^ TRUE;
+                OwnerSay("CMSG008", [ llList2String(["Off","On"], deferredMode) ]);
+                return;
+            }
 
-				// Now try to convert from: #.#####,#.#####,#.###### - which is poor - but looks like it works
-				//  This is the other half of the brute force from a vector to a string and getting back into
-				//  a vector... the API is there but it's plain old busted. So brute force we go... (sigh)
-				p2 = llParseString2List(llList2String(p,1),[","],[]);
-				primTextColorNormal.x=llList2Float(p2,0);
-				primTextColorNormal.y=llList2Float(p2,1);
-				primTextColorNormal.z=llList2Float(p2,2);
+            if (UI_ShowAll == cmd)
+            {
+                llOwnerSay("Currently displaying menu:"+menuName+" and the menu is "+llList2String(["minimized","showing"],primMeUp));
+                llOwnerSay("Mode is set to:"+llList2String(["Off", "Dance", "AO"], mode));
+                llOwnerSay("Deferred freestyle dancing is:"+llList2String(["Off","On"], deferredMode));
+                llOwnerSay("Current theme is:"+primTexture);
+                MessageDCShowAll();
+                return;
+            }
+            
+            if (UI_SelectUserMenu == cmd)
+            {
+                prevUserMenuLinkId = (integer)((string)id);    // Remember the user menu to return to (from the admin menu)
+                return;
+            }
 
-				p2 = llParseString2List(llList2String(p,2),[","],[]);
-				primTextColorHighlight.x=llList2Float(p2,0);
-				primTextColorHighlight.y=llList2Float(p2,1);
-				primTextColorHighlight.z=llList2Float(p2,2);
+            if (UI_SetTheme == cmd) // Set theme only takes a texture name
+            {
+                primTexture = (string)id;
+                changedTheme = TRUE;
+            }
+            if (UI_SetTransparency == cmd)  // Set transparency param is integer range 0-100 (it's a %)
+            {
+                primColorAlpha = 1.0 - (((float)((string)id)) / ((float)100.0));
+                changedTheme = TRUE;
+            }
+            if (changedTheme)
+            {
+                // Now repaint and redraw it all - texture or transparency changed
+                RepaintPrims();
 
-				p2 = llParseString2List(llList2String(p,3),[","],[]);
-				primBackgroundColor.x=llList2Float(p2,0);
-				primBackgroundColor.y=llList2Float(p2,1);
-				primBackgroundColor.z=llList2Float(p2,2);
+                primPrevMenuIndex = -1;
+                p = llParseString2List(GetPrimModeOffsets(mode), [","], []);
+                llSetLinkPrimitiveParamsFast(PRIMMODELINK, [ PRIM_TEXTURE, frontSide, primTexture,
+                                                <llList2Float(p,0), llList2Float(p,1), 0.0>,
+                                                <llList2Float(p,2), llList2Float(p,3), 0.0>, 0 ]);
+                MessageGoToMenu(Define_ADMINLINKID);        // Return back to the admin menu with you :-)
+                changedTheme = FALSE;
+                return;
+            }
 
-				p2=[];
+            if ("LOADED" == str)
+            {
+                if (IsUserMenu(menuLinkId))
+                {
+                    MessageGetMenuRange(menuLinkId, llList2Integer(menuStartItem, menuLinkId-MenuBaseNumber), NUMBEROFLINES, Define_UILINKID);    
+                }
+                return;
+            }
+            
+            if ("FREESTYLEADDED" == str)
+            {
+                p = llParseString2List(id, ["|"], []);
+                OwnerSay("DCMSG022", [ llList2String(p,0), llList2Integer(p,1)-MenuBaseNumber ] );
+                MessageMenuShowSequence(llList2Integer(p,1), llList2String(p,0));
+                return;
+            }
 
-				primTextColorAlpha = llList2Float(p,4);
-				primTextColorHighlightAlpha = llList2Float(p,5);
-				primBackgroundAlpha = llList2Float(p,6);
-				
-				// Now repaint and redraw it all
-				RepaintPrims();
+            return;
+        }
 
-				primPrevMenuIndex = -1;
-				if (primMeUp)
-				{
-					p = llParseString2List(GetPrimModeOffsets(mode), [","], []);
-				    llSetLinkPrimitiveParamsFast(PRIMMODELINK, [ PRIM_TEXTURE, frontSide, primTexture,
-				    								<llList2Float(p,0), llList2Float(p,1), 0.0>,
-				    								<llList2Float(p,2), llList2Float(p,3), 0.0>, 0 ]);
-			    }
-				MessageGoToMenu(Define_ADMINLINKID);		// Return back to the admin menu with you :-)
-				return;
-			}
+        // If the script was reset, then make sure that EVERYTHING has been reset
+        if ((num == 0) && ("RESET" == str))
+       {
+            ResetUI();
 
-			if ("LOADED" == str)
-			{
-				if (IsUserMenu(menuLinkId))
-					MessageGetMenuRange(menuLinkId, llList2Integer(menuStartItem, menuLinkId-MenuBaseNumber), NUMBEROFLINES, Define_UILINKID);	
-				return;
-			}
-			
-			if ("FREESTYLEADDED" == str)
-			{
-				p = llParseString2List(id, ["|"], []);
-				OwnerSay("DCMSG022", [ llList2String(p,0), llList2Integer(p,1)-MenuBaseNumber ] );
-				MessageMenuShowSequence(llList2Integer(p,1), llList2String(p,0));
-				return;
-			}
+            // Ok - prims are all cleaned up to factory defaults...
+            llResetScript();
+        }
+    }    // End of link message
 
-			return;
-		}
+    // Is the HUD attached? If it is, then check for deferred mode - and reset it on the attachment
+    //  (and tell the user about it)
+    attach(key attached)
+    {
+        if (attached != NULL_KEY)
+        {
+            if (deferredMode)
+            {
+                deferredMode = FALSE;
+                OwnerSay("CMSG008", [ "Off" ]);
+            }
 
-		// If the script was reset, then make sure that EVERYTHING has been reset
-		if ((0 == num) && ("RESET" == str))
-		{
-			// If we were NOT prim'd up - then we need to rotate back down in position on a reset
-			if (!primMeUp)
-			{
-				vector eul = <0,0,0>; //0 degrees around the y-axis, in Euler form
-				eul *= DEG_TO_RAD; //convert to radians
-				rotation quat = llEuler2Rot(eul); //convert to quaternion
-			    llSetPrimitiveParams([ PRIM_ROTATION, quat ]);
-			    primMeUp = TRUE;
-		    }
-		
-			// Reset the textures/colors
-			primTextColorNormal = <1.0, 1.0, 1.0>;		// Default of white as hover text
-			primTextColorHighlight = <0.0, 1.0, 0.0>;	// Default of green for highlighted text
-			primBackgroundColor = <0.0, 0.0, 0.0>;		// Default background color of black
-			primBackgroundAlpha = 1.0;
-			primTextColorAlpha = 1.0;
-			primTextColorHighlightAlpha = 1.0;
+            // If we were rez'd - then the backs of the hud need to be set back to transparent    
+            if (primBackAlphaLevel == 1.0)
+            {
+                primBackAlphaLevel = 0.0;
+                RepaintPrims();
+            }            
+        }
+    }
 
-			// Clear off any text settings from the whole menu
-			llSetLinkPrimitiveParamsFast(PRIMMENUNAMELINK, [ PRIM_TEXT, "", primTextColorNormal, primTextColorAlpha ]);
-			for (i=0; i < NUMBEROFLINES; ++i)
-				SetPrimText(i, "");
-			
-			primTexture = DefaultThemeName;
-			RepaintPrims();
-			
-			SetInitialMessage();
+    // If we are rezed an dnot attached, then we need to make the back of the hud non-transparent - so
+    //  set it and repaint all of the prims.
+    on_rez(integer startParam)
+    {
+        if (CheckEqZero(llGetAttached()))
+        {
+            primBackAlphaLevel = 1.0;
+            RepaintPrims();
+        }
+    }
+    
+    // Notice when the size of the hud changes (especially vertical size of a menu item)
+    // we will get A LOT of these in a row - on a resize - like 30+ of them... (shrug)
+    // gotta deal with them - I'm not loving this as it near hits a max of events - but
+    // I'd rather handle it this way quickly... hmmm... alternative is to have a link message
+    // for it - let's try the changed event and see how it leads us - if there is a problem
+    // then we will change to a link message.
+    changed (integer flags)
+    {
+        if (flags & CHANGED_SCALE)
+        {
+            SearchForVerticalPrimSize();
+        }
 
-			// Ok - prims are all cleaned up to factory defaults...
-			llResetScript();
-		}
-	}	// End of link message
-
-	// Is the HUD attached? If it is, then check for deferred mode - and reset it on the attachment
-	//  (and tell the user about it)
-	attach(key attached)
-	{
-		if (attached != NULL_KEY)
-		{
-			if (deferredMode)
-			{
-				deferredMode = FALSE;
-				OwnerSay("CMSG008", [ "Off" ]);
-			}
-
-			// If we were rez'd - then the backs of the hud need to be set back to transparent	
-			if (primBackAlphaLevel == 1.0)
-			{
-				primBackAlphaLevel = 0.0;
-				RepaintPrims();
-			}			
-		}
-	}
-
-	// If we are rezed an dnot attached, then we need to make the back of the hud non-transparent - so
-	//  set it and repaint all of the prims.
-	on_rez(integer startParam)
-	{
-		if (0 == llGetAttached())
-		{
-			primBackAlphaLevel = 1.0;
-			RepaintPrims();
-		}
-	}
-	
-	// Notice when the size of the hud changes (especially vertical size of a menu item)
-	// we will get A LOT of these in a row - on a resize - like 30+ of them... (shrug)
-	// gotta deal with them - I'm not loving this as it near hits a max of events - but
-	// I'd rather handle it this way quickly... hmmm... alternative is to have a link message
-	// for it - let's try the changed event and see how it leads us - if there is a problem
-	// then we will change to a link message.
-	changed (integer flags)
-	{
-		if (flags & CHANGED_SCALE)
-			SearchForVerticalPrimSize();
-	}
+        if (flags & CHANGED_OWNER)
+            llResetScript();
+    }
 }

@@ -1,3 +1,5 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
 #ifndef DEBUG
 #define DEBUG
 // Debug module
@@ -11,18 +13,18 @@
 // Start of user configured settings...
 
 #undef NOTECARD_DEBUG_FLAG
-	// Debug handling of reading of the notecard
+    // Debug handling of reading of the notecard
 #undef MAINSCRIPT_DEBUG_FLAG
-	// Mainscript debugging flags
+    // Mainscript debugging flags
 #undef MENULIST_DEBUG_FLAG
-	// MenuList debugging flag
+    // MenuList debugging flag
 #undef DANCER_DEBUG_FLAG
 // #define DANCER_DEBUG_FLAG 1
-	// DanceController debugging
+    // DanceController debugging
 #undef DANCECONTROL_DEBUG_FLAG
 // #define DANCECONTROL_DEBUG_FLAG 1
-	// DanceController debugging
-	
+    // DanceController debugging
+    
 // End of user configured settings...
 
 // Simple print debug messages - if the flag is set - print something
@@ -33,28 +35,28 @@
 #endif
 
 #ifdef MAINSCRIPT_DEBUG_FLAG
-#define Debug_MainScript(msg) llOwnerSay("Main:"+msg)
+#define Debug_MainScript(msg) llOwnerSay("Main:"+msg);
 #else
 #define Debug_MainScript(msg)
 #endif
 
 
 #ifdef MENULIST_DEBUG_FLAG
-#define Debug_MenuList(msg) llOwnerSay("MenuList:"+msg)
+#define Debug_MenuList(msg) llOwnerSay("MenuList:"+msg);
 #else
 #define Debug_MenuList(msg)
 #endif
 
 
 #ifdef DANCER_DEBUG_FLAG
-#define Debug_Dancer(msg) llOwnerSay("Dancer "); llOwnerSay msg
+#define Debug_Dancer(msg) llOwnerSay("Dancer "+msg);
 #else
 #define Debug_Dancer(msg)
 #endif
 
 
 #ifdef DANCECONTROL_DEBUG_FLAG
-#define Debug_DanceControl(msg) llOwnerSay("DanceControl:"+msg)
+#define Debug_DanceControl(msg) llOwnerSay("DanceControl:"+msg);
 #else
 #define Debug_DanceControl(msg)
 #endif

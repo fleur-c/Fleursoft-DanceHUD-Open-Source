@@ -1,3 +1,5 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
 // Script for making the animations of anyone happen. This is the dance controller
 //  for each dancer. We simply start and stop animations here - nothing fancy at all.
 //
@@ -35,6 +37,7 @@
 #ifdef UNIT_TEST_TRACING
 #define MODULE "FSDancer"
 #endif
+#define NEED_GROUP_NAMES 1    // We need to know the group name lists in this script
 #include "GlobalDefinitions"
 #include "Dancer.h"
 #include "DanceControl.h"
@@ -48,49 +51,49 @@
 #include "Utility"
 #include "UtilOwnerSay"
 
-integer scriptNumber = 0;	// Script #
-integer linkId = 0;			// Link id for messages directed at us
-integer secondLinkId = 0;	// Link id for admin menu messages directed at us
-integer linkFlags = DancerGroupAllFlags;	// Link flags for broadcast messages
-list animList = [];			// Active animations
-list animIndex = [];			// Index list for each of the active animations - use this to lookup by index
-integer animStarted = 0;	// Count of active animations
-string dancerName = "";		// Name of the avatar
-key dancerKey = NULL_KEY;	// Key of avatar
-key permKey = NULL_KEY;		// Permission to animate granted to this key
-integer activeDancer=FALSE;	// Does this script have an active dancer?
-integer showTimer = FALSE;	// Do we show users the duration of each dance? (flag changed by user)
-string lastPrimaryDance = "";	// Name of the last dance started on index 0.
-integer channelNumber = 0;	// What is the channel we listen on for this dancer?
-integer channelHandle = 0;	// Channel handle for listening for this dancer...
-integer autoInvite = FALSE;	// Are we automatically inviting this dancer? (matters as auto invite does NOT time out)
+integer scriptNumber = 0;       // Script #
+integer linkId = 0;             // Link id for messages directed at us
+integer secondLinkId = 0;       // Link id for admin menu messages directed at us
+integer linkFlags = DancerGroupAllFlags;    // Link flags for broadcast messages
+list animList = [];             // Active animations
+list animIndex = [];            // Index list for each of the active animations - use this to lookup by index
+integer animStarted = 0;        // Count of active animations
+string dancerName = "";         // Name of the avatar
+key dancerKey = NULL_KEY;       // Key of avatar
+key permKey = NULL_KEY;         // Permission to animate granted to this key
+integer activeDancer=FALSE;     // Does this script have an active dancer?
+integer showTimer = FALSE;      // Do we show users the duration of each dance? (flag changed by user)
+string lastPrimaryDance = "";   // Name of the last dance started on index 0.
+integer channelNumber = 0;      // What is the channel we listen on for this dancer?
+integer channelHandle = 0;      // Channel handle for listening for this dancer...
+integer autoInvite = FALSE;     // Are we automatically inviting this dancer? (matters as auto invite does NOT time out)
 
 // Globals used in the linked message processing
-integer bits = 0;				// Control bits from the linked message (compared with the linkFlags)
-integer cmdNumber = 0;			// Command # (see global definitions for these values)
-list cmdParms = [];				// Command parameters
-integer stopParam = 0;			// What is the parameter to stop a dance animation (dance index #)
-string startingDance = "";		// This is the name of an animation we will use to get a new dancer started (soon as we get permission)
-list preloadList = [];			// List of animations that this dancer should load quickly....
-integer preloadIndex = 0;		// Index of which animation is current loading from preloadList
+integer bits = 0;               // Control bits from the linked message (compared with the linkFlags)
+integer cmdNumber = 0;          // Command # (see global definitions for these values)
+list cmdParms = [];             // Command parameters
+integer stopParam = 0;          // What is the parameter to stop a dance animation (dance index #)
+string startingDance = "";      // This is the name of an animation we will use to get a new dancer started (soon as we get permission)
+list preloadList = [];          // List of animations that this dancer should load quickly....
+integer preloadIndex = 0;       // Index of which animation is current loading from preloadList
 #define TIMER_NONE 0
 #define TIMER_INVITE 1
 #define TIMER_LOAD_DANCES 2
-integer timerType = TIMER_NONE;	// What kind of timer are we using?
-integer i = 0;
-integer j = 0;
-integer k = 0;
-string s;
+#define TIMER_SYNC_STOP_WAIT 3
+integer timerType = TIMER_NONE; // What kind of timer are we using?
+integer tempInt1 = 0;
+integer tempInt2 = 0;
+integer tempInt3 = 0;
+string tempStr1;
 
 DancerGone(string errMsg, float delay)
 {
-	if (!autoInvite)
-	{
-		OwnerSay(errMsg, [ dancerName, delay ]);
-	}
-	MessageRemoveDancer(dancerKey, FALSE);
-	llResetScript();
-	llSleep(0.1);
+    if (!autoInvite)
+    {
+        OwnerSay(errMsg, [ dancerName, delay ]);
+    }
+    MessageRemoveDancer(dancerKey, FALSE);
+    llResetScript();
 }
 
 // Check if the avatar is still in the region before we do anything - also check if we have permission
@@ -99,208 +102,225 @@ DancerGone(string errMsg, float delay)
 //   If the dancer is gone of we've lost our permissions, then tell the owner and reset the script
 //   (we are not waiting around for another dance request which will only fail)
 #define IsDancerOk \
-	if (ZERO_VECTOR == llGetAgentSize(dancerKey)) DancerGone("DMSG008", 0.0);	\
-	if ((llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) == 0) DancerGone("DMSG004", 0.0);
+    if (llGetAgentSize(dancerKey) == ZERO_VECTOR) { DancerGone("DMSG008", 0.0); }    \
+    if (CheckEqZero(llGetPermissions() && PERMISSION_TRIGGER_ANIMATION)) { DancerGone("DMSG004", 0.0); }
 
+
+// Common code - from either StartDancing or the timer event (on a sync)
+StartNextDanceAnimation()
+{
+    startingDance = llList2String(cmdParms,1);
+    if (CheckEqZero(tempInt3))
+    {
+        lastPrimaryDance = startingDance;
+    }
+
+    llStartAnimation(startingDance);
+    Trace("StartDancing:3","Start:"+startingDance)
+    Debug_Dancer(((string)scriptNumber+" started animation '"+startingDance+"'"))
+    
+    // Optimize the common case - starting the first dance OR replacing the only dance
+    //  (this is ALL about avoiding list calls when we don't need to do them)
+    if (CheckEqZero(animStarted))
+    {
+        animList = [startingDance];
+        animIndex = [tempInt3];
+        animStarted = 1;
+        return;
+    }
+    
+    // Handle a dance replacement or a new dance added to the list
+    if (CheckNeqMinusOne(tempInt1))
+    {
+        animList = ReplaceListEntry(animList,[startingDance],tempInt1);
+            // Don't need to update animIndex list....
+    }
+    else
+    {
+        AppendStringToList(animList, startingDance);
+        AppendIntegerToList(animIndex, tempInt3);
+        ++animStarted;
+    }    
+}
 
 // Start an animation - could be we need to stop one first!
 // Handle no active animations yet and replacement animations
 StartDancing()
 {
-	integer i2;
+    integer i2;
 
-	k = llList2Integer(cmdParms,0);
-	Debug_Dancer(((string)scriptNumber+" Start: Params: Dance index:"+(string)k+"  name:"+llList2String(cmdParms,1)+"   stop others flag:"+llList2String(cmdParms,2)));
+    tempInt3 = llList2Integer(cmdParms,0);
+    Debug_Dancer(((string)scriptNumber+" Start: Params: Dance index:"+(string)tempInt3+"  name:"+llList2String(cmdParms,1)+"   stop others flag:"+llList2String(cmdParms,2)))
 
-	IsDancerOk
+    IsDancerOk
 
-	if (animStarted == 0)
-	{
-		i = -1;
-	}
-	else
-	{
-		i = llListFindList(animIndex, [k]);
+    if (CheckEqZero(animStarted))
+    {
+        tempInt1 = -1;
+    }
+    else
+    {
+        tempInt1 = llListFindList(animIndex, [tempInt3]);
 
-		// Should we stop all secondary animations? We stop them before the
-		//  primary animation - the idea is that on the start of a new sequence
-		//  that all secondary animations can be stopped at the start of the
-		//  next sequence (this may not seem like a useful option as I think we
-		//  probably already stop secondary animations... but if the user
-		//  hits a stop button, then we don't because the sequence didn't
-		//  tell us to stop them). So we really do need to do this...
-		//  Only bother to do this if there is more than one animation active (rare)
-		i2 = llList2Integer(cmdParms, 2);
-		if (i2 == DanceFlagStopOtherAnimations)
-		{
-			if (animStarted > 1)
-			{
-				for (j=0; j<animStarted; ++j)
-				{
-					if (j != i)
-					{
-						s = llList2String(animList, j);
-						llStopAnimation(s);
-						Trace("StartDancing:1","Stop:"+s)
-						Debug_Dancer(((string)scriptNumber+" Start: stopped animation '"+s+"' - which was a secondary animation - index:"+(string)j));
-					}
-				}
-				
-				// Purge all the other animations from our active animation lists
-				animList = [llList2String(animList, i)];
-				animIndex = [k];
-				animStarted = 1;
-				i = 0;
-			}
-		}
+        // Should we stop all secondary animations? We stop them before the
+        //  primary animation - the idea is that on the start of a new sequence
+        //  that all secondary animations can be stopped at the start of the
+        //  next sequence (this may not seem like a useful option as I think we
+        //  probably already stop secondary animations... but if the user
+        //  hits a stop button, then we don't because the sequence didn't
+        //  tell us to stop them). So we really do need to do this...
+        //  Only bother to do this if there is more than one animation active (rare)
+        i2 = llList2Integer(cmdParms, 2);
+        if (i2 == DanceFlagStopOtherAnimations)
+        {
+            if (animStarted > 1)
+            {
+                for (tempInt2=0; tempInt2<animStarted; ++tempInt2)
+                {
+                    if (tempInt2 != tempInt1)
+                    {
+                        tempStr1 = llList2String(animList, tempInt2);
+                        llStopAnimation(tempStr1);
+                        Trace("StartDancing:1","Stop:"+tempStr1)
+                        Debug_Dancer(((string)scriptNumber+" Start: stopped animation '"+tempStr1+"' - which was a secondary animation - index:"+(string)tempInt2))
+                    }
+                }
+                
+                // Purge all the other animations from our active animation lists
+                animList = [llList2String(animList, tempInt1)];
+                animIndex = [tempInt2];
+                animStarted = 1;
+                tempInt1 = 0;
+            }
+        }
 
-		if (i != -1)
-		{
-			if (showTimer && (k == 0))
-				OwnerSay("DMSG001", [lastPrimaryDance,llGetAndResetTime()]);
+        if (CheckNeqMinusOne(tempInt1))
+        {
+            if (showTimer && CheckEqZero(tempInt2))
+            {
+                OwnerSay("DMSG001", [lastPrimaryDance,llGetAndResetTime()]);
+            }
 
-			s = llList2String(animList, i);
-			llStopAnimation(s);
-			Trace("StartDancing:2","Stop:"+s)
-			Debug_Dancer(((string)scriptNumber+" Start: stopped animation '"+s+"'"));
-		}
+            tempStr1 = llList2String(animList, tempInt1);
+            llStopAnimation(tempStr1);
+            Trace("StartDancing:2","Stop:"+tempStr1)
+            Debug_Dancer(((string)scriptNumber+" Start: stopped animation '"+tempStr1+"'"))
+        }
 
-		// Ok - to sync animations - we stopped a previous animation - now we need to start
-		//  a completely different one. We'll use stand_1 (which is horrible - but this is
-		//  an experiment to see if it works at all) - wait a lil bit then stop it and start
-		//  the correct animation. This will 'force' a sync to the start of the animation.
-		//  Anything else seems to just keep on going - without this we never even stopped
-		//  as the sim kept the animation running and ignored the stop completely.
-		if (i2 == DanceFlagSyncAnimations)
-		{
-			llStartAnimation(Define_DefaultWaitAnimation);
-			llSleep(0.5);	// (sigh)
-			llStopAnimation(Define_DefaultWaitAnimation);
-		}
-	}
+        // Ok - to sync animations - we stopped a previous animation - now we need to start
+        //  a completely different one. We'll use stand_1 - wait a lil bit (via a 1/2 second
+        //  timer) then stop it and start the correct animation. This will 'force' a sync
+        //  to the start of the animation. Anything else seems to just keep on going - without
+        //  this we never even stopped as the sim kept the animation running and ignored the
+        //  stop completely.
+        //
+        // Note: Avoided using llSleep here as that locks up the script thread in the server.
+        if (i2 == DanceFlagSyncAnimations)
+        {
+            llStartAnimation(Define_DefaultWaitAnimation);
+            timerType = TIMER_SYNC_STOP_WAIT;
+            llSetTimerEvent(0.5);
+            return; // The timer event will cause the wait to stop and the dance animation to start
+        }
+    }
 
-	startingDance = llList2String(cmdParms,1);
-	if (k == 0)
-		lastPrimaryDance = startingDance;
-
-	llStartAnimation(startingDance);
-	Trace("StartDancing:3","Start:"+startingDance)
-	Debug_Dancer(((string)scriptNumber+" started animation '"+startingDance+"'"));
-	
-	// Optimize the common case - starting the first dance OR replacing the only dance
-	//  (this is ALL about avoiding list calls when we don't need to do them)
-	if (animStarted == 0)
-	{
-		animList = [startingDance];
-		animIndex = [k];
-		animStarted = 1;
-		return;
-	}
-	
-	// Handle a dance replacement or a new dance added to the list
-	if (i != -1)
-	{
-		animList = ReplaceListEntry(animList,[startingDance],i);
-			// Don't need to update animIndex list....
-		return;
-	}
-	else
-	{
-		animList = AppendStringToList(animList, startingDance);
-		animIndex = AppendIntegerToList(animIndex, k);
-		++animStarted;
-		return;
-	}	
+    StartNextDanceAnimation();
 }
 
 // Stop an animation (or all of them)
 StopDancing()
 {
-	if (animStarted == 0)	// Handle the no animations to stop case quickly...
-		return;
+    if (CheckEqZero(animStarted))    // Handle the no animations to stop case quickly...
+    {
+        return;
+    }
 
-	// If we have no permission - then we can't stop any animations - so clear our lists and we're done
-	IsDancerOk
+    // If we have no permission - then we can't stop any animations - so clear our lists and we're done
+    IsDancerOk
 
-	if (stopParam != DancerFlagStopAllDances)
-	{
-		i = llListFindList(animIndex,[stopParam]);
-		if (i != -1)
-		{
-			if (showTimer && (i == 0))
-				OwnerSay("DMSG001", [lastPrimaryDance, llGetAndResetTime()]);
+    if (stopParam != DancerFlagStopAllDances)
+    {
+        tempInt1 = llListFindList(animIndex,[stopParam]);
+        if (CheckNeqMinusOne(tempInt1))
+        {
+            if (showTimer && CheckEqZero(tempInt1))
+            {
+                OwnerSay("DMSG001", [lastPrimaryDance, llGetAndResetTime()]);
+            }
 
-			s = llList2String(animList,i);
-			llStopAnimation(s);
-			Trace("StopDancing:1","Stop:"+s)
+            tempStr1 = llList2String(animList,tempInt1);
+            llStopAnimation(tempStr1);
+            Trace("StopDancing:1","Stop:"+tempStr1)
 
-			// Special case optimization - stopping when we only have one dance does NOT do list manipulation
-			if (animStarted == 1)
-			{
-				animList = [];
-				animIndex = [];
-				animStarted = 0;
-				return;
-			}
-			else
-			{
-				animList = DeleteListEntry(animList,i);
-				animIndex = DeleteListEntry(animIndex,i);
-				--animStarted;
-				return;
-			}
-		}
-		Debug_Dancer(((string)scriptNumber+":Stopping dance "+(string)stopParam+" which is not active - we have "+(string)animStarted+" active dances"));
-		return;
-	}
-	else
-	{
-		if (animStarted > 0)
-		{
-			if (showTimer)
-				OwnerSay("DMSG001", [lastPrimaryDance, llGetAndResetTime()]);
+            // Special case optimization - stopping when we only have one dance does NOT do list manipulation
+            if (animStarted == 1)
+            {
+                animList = [];
+                animIndex = [];
+                animStarted = 0;
+                return;
+            }
+            else
+            {
+                animList = DeleteListEntry(animList,tempInt1);
+                animIndex = DeleteListEntry(animIndex,tempInt1);
+                --animStarted;
+                return;
+            }
+        }
+        Debug_Dancer(((string)scriptNumber+":Stopping dance "+(string)stopParam+" which is not active - we have "+(string)animStarted+" active dances"))
+        return;
+    }
+    else
+    {
+        if (animStarted > 0)
+        {
+            if (showTimer)
+            {
+                OwnerSay("DMSG001", [lastPrimaryDance, llGetAndResetTime()]);
+            }
 
-			for (i = 0; i< animStarted; ++i)
-			{
-				s = llList2String(animList,i);
-				llStopAnimation(s);
-				Trace("StopDancing:2","Stop:"+s)
-			}
-		}
-		animList = [];
-		animIndex = [];
-		animStarted = 0;
-	}
+            for (tempInt1 = 0; tempInt1 < animStarted; ++tempInt1)
+            {
+                tempStr1 = llList2String(animList, tempInt1);
+                llStopAnimation(tempStr1);
+                Trace("StopDancing:2","Stop:"+tempStr1)
+            }
+        }
+        animList = [];
+        animIndex = [];
+        animStarted = 0;
+    }
 }
 
 // Get permission to animate an avatar
 AddDancer()
 {
-	startingDance = llList2String(cmdParms,0); // use as a temporary for the dancerName - need to clear the previous one
-	if (activeDancer)
-	{
-		Debug_Dancer(((string)scriptNumber+":Starting dancer '"+startingDance+"' - but we already have a dancer '"+dancerName+"'- so removing previous dancer."));
-		stopParam = DancerFlagStopAllDances;
-		StopDancing();
-		Trace("AddDancer:1","Replacing dancer:"+dancerName+" with:"+startingDance)
-	}
-	
-	// Remember some info for when we get called back (on timer or permissions)
-	dancerName = startingDance;
-	dancerKey = llList2Key(cmdParms,1);
-	channelNumber = llList2Integer(cmdParms,2);
-	autoInvite = llList2Integer(cmdParms,3);
-	startingDance = llList2String(cmdParms,4);
-	
-	activeDancer = FALSE;
-	
-	// Ok - ready to go - ask for permission and set a timer (so we can time out the request)
-	llRequestPermissions(dancerKey, PERMISSION_TRIGGER_ANIMATION);
-	if (!autoInvite)
-	{
-		timerType = TIMER_INVITE;
-		llSetTimerEvent(DancerPromptDelay);
-	}
+    startingDance = llList2String(cmdParms,0); // use as a temporary for the dancerName - need to clear the previous one
+    if (activeDancer)
+    {
+        Debug_Dancer(((string)scriptNumber+":Starting dancer '"+startingDance+"' - but we already have a dancer '"+dancerName+"'- so removing previous dancer."))
+        stopParam = DancerFlagStopAllDances;
+        StopDancing();
+        Trace("AddDancer:1","Replacing dancer:"+dancerName+" with:"+startingDance)
+    }
+    
+    // Remember some info for when we get called back (on timer or permissions)
+    dancerName = startingDance;
+    dancerKey = llList2Key(cmdParms,1);
+    channelNumber = llList2Integer(cmdParms,2);
+    autoInvite = llList2Integer(cmdParms,3);
+    startingDance = llList2String(cmdParms,4);
+    
+    activeDancer = FALSE;
+    
+    // Ok - ready to go - ask for permission and set a timer (so we can time out the request)
+    llRequestPermissions(dancerKey, PERMISSION_TRIGGER_ANIMATION);
+    if (!autoInvite)
+    {
+        timerType = TIMER_INVITE;
+        llSetTimerEvent(DancerPromptDelay);
+    }
 }
 
 
@@ -310,361 +330,396 @@ AddDancer()
 #define CHANGE_DANCERS_FLAGS_MENU_NAME "Changing settings for:"
 HandleChangeFlags()
 {
-	integer cmd = llList2Integer(cmdParms,0);
-	integer length = llGetListLength(Define_GroupBits);
-	string s2;
+    integer cmd = llList2Integer(cmdParms,0);
+    integer length = llGetListLength(Define_GroupBits);
+    string s2;
 
-	if (cmd == MenuLite_GetMenuRange)
-	{
-		integer startIndex = llList2Integer(cmdParms,1);
-		integer returnLinkid = llList2Integer(cmdParms, 2);
-		integer number = llList2Integer(cmdParms,3);
+    if (cmd == MenuLite_GetMenuRange)
+    {
+        integer startIndex = llList2Integer(cmdParms,1);
+        integer returnLinkid = llList2Integer(cmdParms, 2);
+        integer number = llList2Integer(cmdParms,3);
 
-		if ((startIndex > length) || (startIndex < 0))
-			MessageSendMenuRange(returnLinkid, CHANGE_DANCERS_FLAGS_MENU_NAME+dancerName, length, 0, Define_FlagRangeConstrainedMenu, secondLinkId, "");
-		else
-		{
-			// Check the upper range and adjust downward if required (add a 'back' as the first entry and skip 'all' entry)
-			//  and include all the bits on the list
-			if ((startIndex+number) > length)
-				number = (length-startIndex);
-			
-			// First menu entry is 'Back'  - we always have room for at least one entry - so always return a menu
-			cmdParms = [ llDumpList2String(["#1 Back",secondLinkId,0],"|") ];
-			for (i=1; i < number; ++i)
-			{
-				// Make a pretty menu item of 'alias</extra alias>:<On/Off>' for each bit...
-				s2 = llList2String(Define_GroupNames, i+startIndex);
-				if (llList2String(Define_GroupAliases, i+startIndex) != "|")
-					s2 = AppendToString(s2, "/"+llList2String(Define_GroupAliases, i+startIndex));
-				s = "Off";
-				cmd = llList2Integer(Define_GroupBits, i+startIndex);
-				if ((linkFlags & cmd) == cmd)
-					s = "On";
-				s2 = AppendToString(s2, ":"+s);
+        if ((startIndex > length) || (startIndex < 0))
+        {
+            MessageSendMenuRange(returnLinkid, CHANGE_DANCERS_FLAGS_MENU_NAME+dancerName, length, 0, Define_FlagRangeConstrainedMenu, secondLinkId, "");
+        }
+        else
+        {
+            // Check the upper range and adjust downward if required (add a 'back' as the first entry and skip 'all' entry)
+            //  and include all the bits on the list
+            if ((startIndex+number) > length)
+            {
+                number = (length-startIndex);
+            }
+            
+            // First menu entry is 'Back'  - we always have room for at least one entry - so always return a menu
+            cmdParms = [ "#1 Back"+"|"+(string)secondLinkId+"|" + (string)0 ];
+            for (tempInt1 = 1; tempInt1 < number; ++tempInt1)
+            {
+                // Make a pretty menu item of 'alias</extra alias>:<On/Off>' for each bit...
+                tempInt2 = tempInt1+startIndex;
+                s2 = llList2String(Define_GroupNames, tempInt2);
+                if (llList2String(Define_GroupAliases, tempInt2) != "|")
+                {
+                    AppendToString(s2, "/"+llList2String(Define_GroupAliases, tempInt2));
+                }
+                tempStr1 = "Off";
+                cmd = llList2Integer(Define_GroupBits, tempInt2);
+                if ((linkFlags & cmd) == cmd)
+                {
+                    tempStr1 = "On";
+                }
+                AppendToString(s2, ":"+tempStr1);
 
-				s = llDumpList2String(["#"+(string)(i+startIndex+2)+" "+s2, secondLinkId, i+startIndex],"|");
-				cmdParms = AppendStringToList(cmdParms, s);
-			}
-			
-			s = llDumpList2String(cmdParms, "|||");
-			MessageSendMenuRange(returnLinkid, CHANGE_DANCERS_FLAGS_MENU_NAME+dancerName, number+1, startIndex, Define_FlagRangeConstrainedMenu, secondLinkId, s);
-			return;
-		}
-	}
+                tempStr1 = "#"+(string)(tempInt2+2)+" "+s2 + "|" +(string)secondLinkId + "|" + (string)tempInt2;
+                AppendStringToList(cmdParms, tempStr1);
+            }
+            
+            tempStr1 = llDumpList2String(cmdParms, "|||");
+            MessageSendMenuRange(returnLinkid, CHANGE_DANCERS_FLAGS_MENU_NAME+dancerName, number+1, startIndex, Define_FlagRangeConstrainedMenu, secondLinkId, tempStr1);
+            tempStr1 = "";
+            return;
+        }
+    }
 
-	if (cmd == MenuLite_Select)
-	{
-		// The menu returned to the user was: (back), flag(1), flag(2)... - we do NOT have the 'all' flag here...
-		cmd = llList2Integer(cmdParms,1);	// We do everything based on zero as the starting point
-		if ((cmd >= 0) && (cmd < length))	// For the (back)+list
-		{
-			if (cmd == 0)
-				cmd = Define_LISTDANCERSLINKID;	// 'Back' to the list of dancers menu with you...
-			else
-			{
-				linkFlags = linkFlags ^ llList2Integer(Define_GroupBits, cmd);
-				cmd = secondLinkId;
-			}
-		}
-		else
-		{
-			OwnerSay("DCMSG007", [llList2String(cmdParms,1)]);
-			cmd = secondLinkId;	// Back to the list of flags for this dancer again...
-		}
-		MessageGoToMenu(cmd);
-	}
+    if (cmd == MenuLite_Select)
+    {
+        // The menu returned to the user was: (back), flag(1), flag(2)... - we do NOT have the 'all' flag here...
+        cmd = llList2Integer(cmdParms,1);    // We do everything based on zero as the starting point
+        if ((cmd >= 0) & (cmd < length))    // For the (back)+list
+        {
+            if (CheckEqZero(cmd))
+            {
+                cmd = Define_LISTDANCERSLINKID;    // 'Back' to the list of dancers menu with you...
+            }
+            else
+            {
+                linkFlags = linkFlags ^ llList2Integer(Define_GroupBits, cmd);
+                cmd = secondLinkId;
+            }
+        }
+        else
+        {
+            OwnerSay("DCMSG007", [llList2String(cmdParms,1)]);
+            cmd = secondLinkId;    // Back to the list of flags for this dancer again...
+        }
+        MessageGoToMenu(cmd);
+    }
 }
 
 
 
 default
 {
-	state_entry()
-	{
-		// Look up our script # (for the link messages that will come to us)
-		// We do this by looking at the name of this script in inventory and
-		// examining the last two characters (# or ##) and using those as the
-		// script # which is added to the link id to get us unique link messages.
-		string script;
+    state_entry()
+    {
+        // Look up our script # (for the link messages that will come to us)
+        // We do this by looking at the name of this script in inventory and
+        // examining the last two characters (# or ##) and using those as the
+        // script # which is added to the link id to get us unique link messages.
+        string script;
 #define numberCheck ["0","1","2","3","4","5","6","7","8","9"]
-			
-		// Get the script name and if there is a # or ## at the end, we use that as our script number
-		script = llGetScriptName();
-		if (llStringLength(script) > 3)
-		{
-			scriptNumber = llListFindList(numberCheck, [llGetSubString(script, -1, -1)]);
-			if (scriptNumber != -1)
-			{
-				i = llListFindList(numberCheck, [llGetSubString(script, -2, -2)]);
-				if (i != -1)
-					scriptNumber += (10 * i);
-			}
-		}
-		
-		if (scriptNumber < 1)
-		{
-			OwnerSay("DMSG006", [script]);
-			llRemoveInventory(script);
-			return;	// Shouldn't get here - but we exit the entry state this way...
-		}
-		
-		// The script # is used to determine our link id (so, how we receive link messages) AND
-		//  the default menu name (which is script# + 1) - humans like to start at 1, computers 0 (sigh)
-		linkId = Define_DANCERSLINKID + scriptNumber;
-		secondLinkId = linkId+Define_DANCERCHANGEGROUPSOFFSET;
-		Debug_Dancer(("Script name:'"+script+"' - Set the script number to:"+(string)scriptNumber+"  linkid:"+(string)linkId));
-	}
+            
+        // Get the script name and if there is a # or ## at the end, we use that as our script number
+        script = llGetScriptName();
+        if (llStringLength(script) > 3)
+        {
+            scriptNumber = llListFindList(numberCheck, [llGetSubString(script, -1, -1)]);
+            if (CheckNeqMinusOne(scriptNumber))
+            {
+                tempInt1 = llListFindList(numberCheck, [llGetSubString(script, -2, -2)]);
+                if (CheckNeqMinusOne(tempInt1))
+                {
+                    scriptNumber += (10 * tempInt1);
+                }
+            }
+        }
+        
+        if (scriptNumber < 1)
+        {
+            OwnerSay("DMSG006", [script]);
+            llRemoveInventory(script);
+            return;    // Shouldn't get here - but we exit the entry state this way...
+        }
+        
+        // The script # is used to determine our link id (so, how we receive link messages) AND
+        //  the default menu name (which is script# + 1) - humans like to start at 1, computers 0 (sigh)
+        linkId = Define_DANCERSLINKID + scriptNumber;
+        secondLinkId = linkId+Define_DANCERCHANGEGROUPSOFFSET;
+        Debug_Dancer(("Script name:'"+script+"' - Set the script number to:"+(string)scriptNumber+"  linkid:"+(string)linkId))
+    }
 
-	// This script is controlled completely by linked messages - everything comes in and goes out with a linked message
-	// We also inline EVERYTHING here and use short variable names for maximum speed in getting dances started/stopped
-	link_message(integer sender_num, integer num, string str, key id)
-	{
-		bits = 0;
-		if ((num & Define_DANCEGROUPMASK) == Define_DANCEGROUPS)
-			bits = (num & Define_DANCEGROUPBITMASK);
+    changed(integer flag)
+    {
+        if (flag & CHANGED_OWNER)
+            llResetScript();
+    }
 
-		if ((linkId == num) || (bits & linkFlags))
-		{
-			cmdNumber = (integer)str;		// All dance controller requests are by integer value (not strings) - so we can go FAST
-			cmdParms = llParseString2List((string)id, ["|"], []);
-			
-			// Handle each of the different commands to this dance controller
-			//  First up is starting a dance - handle the commands that require an active dancer
-			if (activeDancer)
-			{
-				if (cmdNumber == DancerStart)
-				{
-					StartDancing();
-					return;
-				}
+    // This script is controlled completely by linked messages - everything comes in and goes out with a linked message
+    // We also inline EVERYTHING here and use short variable names for maximum speed in getting dances started/stopped
+    link_message(integer sender_num, integer num, string str, key id)
+    {
+#ifdef BUILD_FOR_OPENSIM
+        if (num == Define_KEEPALIVELINKID)
+        {
+            return;
+        }
+#endif
 
-				// Next is stopping a dance
-				if (cmdNumber == DancerStop)
-				{
-					stopParam = llList2Integer(cmdParms, 0);
-					StopDancing();
-					return;
-				}
-			
-				// Now we handle the IM aspect...
-				if (cmdNumber == DancerIM)
-				{
-					llInstantMessage(dancerKey, (string)id);
-					Trace("link_message:1","IM:"+(string)id)
-					return;
-				}
-				
-				// Now we handle the giving an inventory item to this dancer - but only if they are NOT the owner of the HUD
-				if (cmdNumber == DancerItem)
-				{
-					llGiveInventory(dancerKey, (string)id);
-					Trace("link_message:6","Item:"+(string)id)
-					return;
-				}
+        bits = 0;
+        if ((num & Define_DANCEGROUPMASK) == Define_DANCEGROUPS)
+        {
+            bits = (num & Define_DANCEGROUPBITMASK);
+        }
 
-				// Get the flags we check on a broadcast
-				if (cmdNumber == DancerGetFlags)
-				{
-					MessageSendDancerFlags(llList2Integer(cmdParms,0), dancerName, linkFlags);
-					return;
-				}
-						
-				// Set the flags we check on a broadcast - any of these bits set means that WE get to do this animation too
-				if (cmdNumber == DancerSetFlags)
-				{
-					linkFlags = llList2Integer(cmdParms,0);
-					Trace("link_message:2","SetFlags:"+(string)linkFlags)
-					return;
-				}
-						
-				// Get the name of the dancer for this script
-				if (cmdNumber == DancerGetInfo)
-				{
-					MessageSendDancerInfo(llList2Integer(cmdParms,0), dancerName, linkId);
-					return;
-				}
-				
-				// We only allow timing for the owner - which is always script # 1 (there is no script # 0)
-				if (cmdNumber == DancerTimer)
-				{
-					if (llGetOwner() == dancerKey)
-					{
-						showTimer = llList2Integer(cmdParms, 0);
-						Trace("link_message:3","SetTimer:"+(string)showTimer)
-						if (showTimer)
-							llResetTime();
-					}
-					return;
-				}
-				
-				// Start a LOT of animations right away (this is the warm up HUD or load all animations trick for each dancer)
-				// We first stop all animations for this dancer, then start up lots
-				if (cmdNumber == DancerLoadAnims)
-				{
-					stopParam = DancerFlagStopAllDances;
-					StopDancing();
+        if ((linkId == num) || (bits & linkFlags))
+        {
+            cmdNumber = (integer)str;        // All dance controller requests are by integer value (not strings) - so we can go FAST
+            cmdParms = llParseString2List((string)id, ["|"], []);
+            
+            // Handle each of the different commands to this dance controller
+            //  First up is starting a dance - handle the commands that require an active dancer
+            if (activeDancer)
+            {
+                if (cmdNumber == DancerStart)
+                {
+                    StartDancing();
+                    return;
+                }
 
-					preloadList = cmdParms;
-					preloadIndex = 1;
-					cmdParms = [0,llList2String(preloadList,1),DanceFlagDoNotStopOtherAnimations];
-					StartDancing();
-					timerType = TIMER_LOAD_DANCES;
-					llSetTimerEvent(Define_DelayBetweenDancerLoadAllAnims);
-					return;
-				}
-				
-				// If we got a list of group aliases - then we can display them for the changing of the dancer group flags...
-				if ("ALIASES" == str)
-				{
-					Define_GroupAliases = llParseString2List((string)id, [","],[]);
-					return;
-				}
-				// DO NOT return here! The reset path has to check for OUR linkid!
-			}
-			
-			// Now we need to be able to add a dancer
-			if (cmdNumber == DancerAdd)
-			{
-				AddDancer();
-				return;
-			}
-			
-			// If we have the 'stop invite automatically - where this dancer has NOT accepted, then we have to reset
-			//  and let this dancer go...
-			if ((cmdNumber == DancerStopAuto) && (autoInvite && (timerType == TIMER_INVITE)))
-			{
-				DancerGone("DMSG002", 0.0);
-				return;
-			}
+                // Next is stopping a dance
+                if (cmdNumber == DancerStop)
+                {
+                    stopParam = llList2Integer(cmdParms, 0);
+                    StopDancing();
+                    return;
+                }
+            
+                // Now we handle the IM aspect...
+                if (cmdNumber == DancerIM)
+                {
+                    llInstantMessage(dancerKey, (string)id);
+                    Trace("link_message:1","IM:"+(string)id)
+                    return;
+                }
+                
+                // Now we handle the giving an inventory item to this dancer - but only if they are NOT the owner of the HUD
+                if (cmdNumber == DancerItem)
+                {
+                    llGiveInventory(dancerKey, (string)id);
+                    Trace("link_message:6","Item:"+(string)id)
+                    return;
+                }
 
-		}	// End if message sent to this script by id
-		
-		// Handle the admin menu for dancer flags/groups
-		if (num == secondLinkId)
-		{
-			cmdParms = llParseString2List(str, ["|"], []);
-			HandleChangeFlags();
-			return;
-		}
+                // Get the flags we check on a broadcast
+                if (cmdNumber == DancerGetFlags)
+                {
+                    MessageSendDancerFlags(llList2Integer(cmdParms,0), dancerName, linkFlags);
+                    return;
+                }
+                        
+                // Set the flags we check on a broadcast - any of these bits set means that WE get to do this animation too
+                if (cmdNumber == DancerSetFlags)
+                {
+                    linkFlags = llList2Integer(cmdParms,0);
+                    Trace("link_message:2","SetFlags:"+(string)linkFlags)
+                    return;
+                }
+                        
+                // Get the name of the dancer for this script
+                if (cmdNumber == DancerGetInfo)
+                {
+                    MessageSendDancerInfo(llList2Integer(cmdParms,0), dancerName, linkId);
+                    return;
+                }
+                
+                // We only allow timing for the owner - which is always script # 1 (there is no script # 0)
+                if (cmdNumber == DancerTimer)
+                {
+                    if (llGetOwner() == dancerKey)
+                    {
+                        showTimer = llList2Integer(cmdParms, 0);
+                        Trace("link_message:3","SetTimer:"+(string)showTimer)
+                        if (showTimer)
+                        {
+                            llResetTime();
+                        }
+                    }
+                    return;
+                }
+                
+                // Start a LOT of animations right away (this is the warm up HUD or load all animations trick for each dancer)
+                // We first stop all animations for this dancer, then start up lots
+                if (cmdNumber == DancerLoadAnims)
+                {
+                    stopParam = DancerFlagStopAllDances;
+                    StopDancing();
 
-		// Reset on either generic (0) or specific (linkid) request to reset
-		if ((-1 != llListFindList([0,linkId], [num])) && (str == "RESET"))
-		{
-			// If we were dancing - stop
-			if (animStarted > 0)
-			{
-				stopParam = DancerFlagStopAllDances;
-				StopDancing();
-			}
-			Trace("link_message:5","Reset")
-			llResetScript();
-		}
-	}
+                    preloadList = cmdParms;
+                    preloadIndex = 1;
+                    cmdParms = [0,llList2String(preloadList,1),DanceFlagDoNotStopOtherAnimations];
+                    StartDancing();
+                    timerType = TIMER_LOAD_DANCES;
+                    llSetTimerEvent(Define_DelayBetweenDancerLoadAllAnims);
+                    return;
+                }
+                
+                // If we got a list of group aliases - then we can display them for the changing of the dancer group flags...
+                if ("ALIASES" == str)
+                {
+                    Define_GroupAliases = llParseString2List((string)id, [","],[]);
+                    return;
+                }
+                // DO NOT return here! The reset path has to check for OUR linkid!
+            }
+            
+            // Now we need to be able to add a dancer
+            if (cmdNumber == DancerAdd)
+            {
+                AddDancer();
+                return;
+            }
+            
+            // If we have the 'stop invite automatically - where this dancer has NOT accepted, then we have to reset
+            //  and let this dancer go...
+            if ((cmdNumber == DancerStopAuto) & (autoInvite && (timerType == TIMER_INVITE)))
+            {
+                DancerGone("DMSG002", 0.0);
+                return;
+            }
 
-	run_time_permissions(integer perms) 
-	{
-		// Take no chances - turn off the possible timer
-		timerType = TIMER_NONE;
-		llSetTimerEvent(0.0);
-		
-		if (perms & PERMISSION_TRIGGER_ANIMATION) 
-		{
-			permKey = dancerKey;
-			activeDancer = TRUE;
-			cmdParms = [0, startingDance, 0];	// Start a dance, name of the dance and flag to stop no other dances
-			StartDancing();	// As soon as we get permission, we start an animation for them...
-			if (dancerKey != llGetOwner())
-			{
-				channelHandle = llListen(channelNumber, "", dancerKey, "");
-			}
-			
-			// Ok - we added a new dancer and they are dancing - yahoo... let's tell the owner of the HUD
-			//  that we've added the new dancer.
-			OwnerSay("DMSG005", [dancerName]);
-			
-			// For the new dancer - we have a couple of messages we can send - so send them now... basically
-			//  these are the 'Hi! Glad you joined us - here's how to stop' - but are customizable in the
-			//  errors notecard.
-			OwnerSay("IM001|"+(string)dancerKey, [ channelNumber ] );
-			if (dancerKey != llGetOwner())
-			{
-				OwnerSay("IM002|"+(string)dancerKey, [ channelNumber ] );
-			}
+        }    // End if message sent to this script by id
+        
+        // Handle the admin menu for dancer flags/groups
+        if (num == secondLinkId)
+        {
+            cmdParms = llParseString2List(str, ["|"], []);
+            HandleChangeFlags();
+            return;
+        }
 
-			// Check if there are three (or more) active animations already - then they probably have an AO on
-			// so we tell the owner and send an IM saying they should probably turn it off...
-			k = llGetListLength(llGetAnimationList(llGetPermissionsKey()));
-			if (k >= 3)
-			{
-				OwnerSay("DMSG009", [dancerName,k]);
-				OwnerSay("IM003|"+(string)dancerKey, [k]);
-			}
-			
-			MessageGetGroupAliases(linkId);		// Usual operational behaviour is that notecards are loaded at home and dancers are added when dancing
-												// So - we're going to get the aliases only after we've added a dancer. We may miss some of the changes
-												// BUT mostly - we'll get the aliases correct and NOT have startup issues.
-			return;
-		}
+        // Reset on either generic (0) or specific (linkid) request to reset
+        if (((0==num) | (linkId==num)) & (str == "RESET"))
+        {
+            // If we were dancing - stop
+            if (animStarted > 0)
+            {
+                stopParam = DancerFlagStopAllDances;
+                StopDancing();
+            }
+            Trace("link_message:5","Reset")
+            llResetScript();
+        }
+    }
 
-		// No permission - tell user about it and reset ourselves
-		DancerGone("DMSG002", 0.0);
-	}
+    run_time_permissions(integer perms) 
+    {
+        // Take no chances - turn off the possible timer
+        timerType = TIMER_NONE;
+        llSetTimerEvent(0.0);
+        
+        if (perms & PERMISSION_TRIGGER_ANIMATION) 
+        {
+            permKey = dancerKey;
+            activeDancer = TRUE;
+            cmdParms = [0, startingDance, 0];    // Start a dance, name of the dance and flag to stop no other dances
+            StartDancing();    // As soon as we get permission, we start an animation for them...
+            if (dancerKey != llGetOwner())
+            {
+                channelHandle = llListen(channelNumber, "", dancerKey, "");
+            }
+            
+            // Ok - we added a new dancer and they are dancing - yahoo... let's tell the owner of the HUD
+            //  that we've added the new dancer.
+            OwnerSay("DMSG005", [dancerName]);
+            
+            // For the new dancer - we have a couple of messages we can send - so send them now... basically
+            //  these are the 'Hi! Glad you joined us - here's how to stop' - but are customizable in the
+            //  errors notecard.
+            OwnerSay("IM001|"+(string)dancerKey, [ channelNumber ] );
+            if (dancerKey != llGetOwner())
+            {
+                OwnerSay("IM002|"+(string)dancerKey, [ channelNumber ] );
+            }
 
-	timer()
-	{
-		integer prevType = timerType;
-		timerType = TIMER_NONE;
-		llSetTimerEvent(0.0);	// Stop the timer from going off later...
+            // Check if there are three (or more) active animations already - then they probably have an AO on
+            // so we tell the owner and send an IM saying they should probably turn it off...
+            tempInt3 = llGetListLength(llGetAnimationList(llGetPermissionsKey()));
+            if (tempInt3 >= 3)
+            {
+                OwnerSay("DMSG009", [dancerName,tempInt3]);
+                OwnerSay("IM003|"+(string)dancerKey, [tempInt3]);
+            }
+            
+            MessageGetGroupAliases(linkId);        // Usual operational behaviour is that notecards are loaded at home and dancers are added when dancing
+                                                // So - we're going to get the aliases only after we've added a dancer. We may miss some of the changes
+                                                // BUT mostly - we'll get the aliases correct and NOT have startup issues.
+            return;
+        }
 
-		if (prevType == TIMER_INVITE)
-		{
-			if ((llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) == 0)
-			{
-				DancerGone("DMSG003", DancerPromptDelay);
-			}
-			return;
-		}
-		if (prevType == TIMER_LOAD_DANCES)
-		{
-			++preloadIndex;
-			if (preloadIndex < llGetListLength(preloadList))
-			{
-				cmdParms = [0,llList2String(preloadList,preloadIndex),DanceFlagDoNotStopOtherAnimations];
-				StartDancing();
-				timerType = TIMER_LOAD_DANCES;
-				llSetTimerEvent(Define_DelayBetweenDancerLoadAllAnims);
-			}
-			else
-			{
-				if (llList2Integer(preloadList,0))
-					MessageChatContinueLoadAllAnims();
-				preloadList = [];
-				preloadIndex = 0;
-			}
-		}
-	}
+        // No permission - tell user about it and reset ourselves
+        DancerGone("DMSG002", 0.0);
+    }
 
-	// Dancers have their own channel for sending either a stop or IM command
-	listen(integer channel, string name, key id, string message)
-	{
-		if ((channel == channelNumber) && (id == dancerKey))
-		{
-			cmdParms = llParseStringKeepNulls(message, [" "],[]);
-			// Check for any number of user commands and nothing else - everything else we drop
-			i = llListFindList(["STOP"], [ llToUpper(llStringTrim(llList2String(cmdParms,0),STRING_TRIM)) ]);
-			if (i != -1)
-			{
-				// We have to have gotten a STOP command (no other option - but check anyways)
-				if (i == 0)
-				{
-					// It's a stop command - so stop all the dances and tell the owner and reset the script
-					stopParam = DancerFlagStopAllDances;
-					StopDancing();
+    timer()
+    {
+        integer prevType = timerType;
+        timerType = TIMER_NONE;
+        llSetTimerEvent(0.0);    // Stop the timer from going off later...
 
-					DancerGone("DMSG004", 0.0);
-				}
-			}
-		}
-	}	// End of listen
+        if (prevType == TIMER_INVITE)
+        {
+            if (CheckEqZero(llGetPermissions() & PERMISSION_TRIGGER_ANIMATION))
+            {
+                DancerGone("DMSG003", DancerPromptDelay);
+            }
+            return;
+        }
+
+        if (prevType == TIMER_LOAD_DANCES)
+        {
+            ++preloadIndex;
+            if (preloadIndex < llGetListLength(preloadList))
+            {
+                cmdParms = [0,llList2String(preloadList,preloadIndex),DanceFlagDoNotStopOtherAnimations];
+                StartDancing();
+                timerType = TIMER_LOAD_DANCES;
+                llSetTimerEvent(Define_DelayBetweenDancerLoadAllAnims);
+            }
+            else
+            {
+                if (llList2Integer(preloadList,0))
+                {
+                    MessageChatContinueLoadAllAnims();
+                }
+                preloadList = [];
+                preloadIndex = 0;
+            }
+        }
+
+        if (prevType == TIMER_SYNC_STOP_WAIT)
+        {
+            llStopAnimation(Define_DefaultWaitAnimation);
+            StartNextDanceAnimation();
+        }
+    }
+
+    // Dancers have their own channel for sending either a stop
+    listen(integer channel, string name, key id, string message)
+    {
+        if ((channel == channelNumber) & (id == dancerKey))
+        {
+            cmdParms = llParseStringKeepNulls(message, [" "],[]);
+            // Did we get a STOP command?
+            if ("STOP" == llToUpper(llStringTrim(llList2String(cmdParms,0),STRING_TRIM)))
+            {
+                // It's a stop command - so stop all the dances and tell the owner and reset the script
+                stopParam = DancerFlagStopAllDances;
+                StopDancing();
+
+                DancerGone("DMSG004", 0.0);
+            }
+        }
+    }    // End of listen
 }

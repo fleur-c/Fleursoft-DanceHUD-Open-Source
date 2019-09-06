@@ -1,0 +1,20 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
+// To use this script:
+// 1) Create a cube and copy this script into the cube as New Script
+// 2) Pick up the cube - it'll show up in your Objects folder in your inventory
+// 3) Rename the cube to: Cube
+// 4) That's it :)
+//
+// This is part of the 'build your own' open source scripts...
+
+// We use this to simply set the name of the object which we will link in
+// Each of the cubes used in a Fleursoft DanceHUD has a name that we set with this script.
+
+default {
+    link_message(integer sender, integer number, string msg, key id)
+    {
+        llSetObjectName(msg);
+        llRemoveInventory(llGetScriptName());
+    }
+}

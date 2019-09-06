@@ -1,16 +1,22 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
 // Services script
 //
 // What does it do?
 // - Attach handling (for owner changes - which force a reset of everything)
 // - Wait sequence handling
 // - Menu selection (for clear, wait sequence menu, copy dances to/from menu)
-// - Recentering of the HUD
+// - Re-centering of the HUD
+// - Debugging handling (was in FSDebug)
 
 #include "Trace"
 #ifdef UNIT_TEST_TRACING
 #define MODULE "FSServices:"
 #endif
+#define NEED_GROUP_NAMES 
+#define KEYWORD_TABLE
 #include "GlobalDefinitions"
+#include "LinkIds.h"
 #include "Services.h"
 #include "Lists.h"
 #include "MenuList.h"
@@ -22,18 +28,26 @@
 #include "Utility"
 #include "UtilOwnerSay"
 
-key ownerKey = NULL_KEY;					// Who owns us?
+key ownerKey = NULL_KEY;                    // Who owns us?
 
-integer copyFromLinkId = 0;					// Where are we copying from sequences to a menu?
-integer waitMenuLinkId = 0;					// Selected menu of wait sequences (0=no such menu, we use stand_1 as a boring wait sequence)
+integer copyFromLinkId = 0;                 // Where are we copying from sequences to a menu?
+integer waitMenuLinkId = 0;                 // Selected menu of wait sequences (0=no such menu, we use stand_1 as a boring wait sequence)
 integer waitSequenceId = -1;
-integer waitMaxSequence = -1;				// We start with the belief that there are NO sequences there
-integer activeMenuLinkid = 0;				// For when we select the active menu - we want to highlight the current one
+integer waitMaxSequence = -1;               // We start with the belief that there are NO sequences there
+integer activeMenuLinkid = 0;               // For when we select the active menu - we want to highlight the current one
 
-integer  lasttarget = 0;					// Last attachment point for the HUD
+integer  lasttarget = 0;                    // Last attachment point for the HUD
+
+list msgs = [];
+integer count = 0;
+list sequence = [];
+integer capture = FALSE;                    // Good to be capturing - so that errors can be detected and fixed quicker
+integer printEveryMsg = FALSE;              // Normally set to FALSE - but I want to see what is going on inside...
+#define MAX_MESSAGES 10
 
 // Transient variables
-list tmpList = [];
+list tmpList;
+string tmpStr;
 
 
 //
@@ -46,340 +60,528 @@ list tmpList = [];
 #define SELECT_ACTIVE_USER_MENU "Select menu"
 HandleListOfUserMenus(string name, integer forLinkid)
 {
-	integer cmd = llList2Integer(tmpList,0);
-	integer length = Define_MaxMenuNumber;
-	string s;
-	integer i;
+    integer cmd = llList2Integer(tmpList,0);
+    integer length = Define_MaxMenuNumber;
+    string s;
+    integer i;
 
-	if (cmd == MenuLite_GetMenuRange)
-	{
-		integer startIndex = llList2Integer(tmpList,1);
-		integer linkid = llList2Integer(tmpList, 2);
-		integer number = llList2Integer(tmpList,3);
+    if (cmd == MenuLite_GetMenuRange)
+    {
+        integer startIndex = llList2Integer(tmpList,1);
+        integer linkid = llList2Integer(tmpList, 2);
+        integer number = llList2Integer(tmpList,3);
 
-		if ((startIndex > length) || (startIndex < 0))
-			MessageSendMenuRange(linkid, name, length, 0, Define_FlagRangeConstrainedMenu, forLinkid, "");
-		else
-		{
-			// Check the upper range and adjust downward if required
-			if ((startIndex+number) > length+1)	// (back)+notecards
-				number = (length-startIndex)+1;
+        if ((startIndex > length) || (startIndex < 0))
+        {
+            MessageSendMenuRange(linkid, name, length, 0, Define_FlagRangeConstrainedMenu, forLinkid, "");
+        }
+        else
+        {
+            // Check the upper range and adjust downward if required
+            if ((startIndex+number) > length+1)    // (back)+notecards
+            {
+                number = (length-startIndex)+1;
+            }
 
-			// We expect that there is at least one notecard - and add a back button first...
-			tmpList = [ llDumpList2String(["#1 Back",forLinkid,0],"|") ];	// First menu entry is 'Back'
-			for (i=0; i < number-1; ++i)
-			{
-				s = llDumpList2String(["#"+(string)(i+startIndex+2)+" "+"Menu "+(string)(i+1),forLinkid,(i+1)],"|");
-				tmpList = AppendStringToList(tmpList, s);
-			}
-			
-			s = llDumpList2String(tmpList, "|||");
-			
-			// There are two user menu selections that have default values:
-			//  1) For the wait sequence menu (highlight the last menu selected as the wait sequence menu)
-			//  2) For the selection of the next user menu (highlight the previous one)
-			integer selectedItem = 0;
-			if ((waitMenuLinkId != 0) && (Define_LISTMENUSFORWAITLINKID == forLinkid))
-				selectedItem = waitMenuLinkId-Define_MENULISTLINKID;
-			if ((activeMenuLinkid != 0) && (Define_LISTMENUSTOSELECTMENU == forLinkid))
-				selectedItem = activeMenuLinkid-Define_MENULISTLINKID;
-			
-			if (selectedItem == 0)
-				MessageSendMenuRange(linkid, name, length+1, startIndex, Define_FlagRangeConstrainedMenu, forLinkid, s);
-			else
-				MessageSendMenuRangeSelected(linkid, name, length+1, startIndex, Define_FlagRangeConstrainedMenu, forLinkid, s, selectedItem);
-			tmpList = [];
-			s = "";
-			return;
-		}
-	}
+            // We expect that there is at least one notecard - and add a back button first...
+            tmpList = [ "#1 Back" + "|" + (string)forLinkid + "|" + (string)0 ];    // First menu entry is 'Back'
+            for (i=0; i < number-1; ++i)
+            {
+                s = "#"+(string)(i+startIndex+2)+" "+"Menu "+(string)(i+1) + "|" + (string)forLinkid + "|" + (string)(i+1);
+                AppendStringToList(tmpList, s);
+            }
+            
+            s = llDumpList2String(tmpList, "|||");
+            
+            // There are two user menu selections that have default values:
+            //  1) For the wait sequence menu (highlight the last menu selected as the wait sequence menu)
+            //  2) For the selection of the next user menu (highlight the previous one)
+            integer selectedItem = 0;
+            if (CheckNeqZero(waitMenuLinkId) && (Define_LISTMENUSFORWAITLINKID == forLinkid))
+            {
+                selectedItem = waitMenuLinkId-Define_MENULISTLINKID;
+            }
+            if (CheckEqZero(activeMenuLinkid) && (Define_LISTMENUSTOSELECTMENU == forLinkid))
+            {
+                selectedItem = activeMenuLinkid-Define_MENULISTLINKID;
+            }
+            
+            if (CheckEqZero(selectedItem))
+            {
+                MessageSendMenuRange(linkid, name, length+1, startIndex, Define_FlagRangeConstrainedMenu, forLinkid, s);
+            }
+            else
+            {
+                MessageSendMenuRangeSelected(linkid, name, length+1, startIndex, Define_FlagRangeConstrainedMenu, forLinkid, s, selectedItem);
+            }
+            tmpList = [];
+            s = "";
+            return;
+        }
+    }
 
-	if (cmd == MenuLite_Select)
-	{
-		// The menu returned to the user was: (back), usermenu(1),usermenu(2)...
-		cmd = llList2Integer(tmpList,1);	// Get the selected item from the list...
-		if ((cmd >= 0) && (cmd <= length))
-		{
-			if (cmd > 0)
-			{
-				if (Define_LISTMENUSTOCLEARLINKID == forLinkid)
-					MessageClearMenu(Define_MENULISTLINKID+cmd);
-				if (Define_LISTMENUSFORWAITLINKID == forLinkid)
-				{
-					waitMenuLinkId = Define_MENULISTLINKID+cmd;
-					waitSequenceId = -1;
-					waitMaxSequence = -1;	// We start with the belief that there are NO sequences there
-					MessageGetMenuRange(waitMenuLinkId, -1, 10000, Define_LISTMENUSFORWAITLINKID);	// Force a summary list of how many dance sequences are on that menu...
-				}
-				if (Define_LISTMENUSFORCOPYFROMLINKID == forLinkid)
-				{
-					copyFromLinkId = Define_MENULISTLINKID+cmd;
-					MessageGoToMenu(Define_LISTMENUSFORCOPYTOLINKID);
-					return;
-				}
-				if (Define_LISTMENUSFORCOPYTOLINKID == forLinkid)
-				{
-					if (Define_MENULISTLINKID+cmd == copyFromLinkId)
-					{
-						OwnerSay("MMSG009", [copyFromLinkId-Define_MENULISTLINKID, cmd]);
-						MessageGoToMenu(Define_LISTMENUSFORCOPYTOLINKID);
-						return;
-					}
-					MessageCopyDances(copyFromLinkId, (Define_MENULISTLINKID+cmd));
-					MessageGoToMenu(Define_ADMINLINKID);		// Return back to the admin menu		
-					return;
-				}
-				if (Define_LISTMENUSTOSELECTMENU == forLinkid)
-				{
-					i = Define_MENULISTLINKID+cmd;
-					MessageUISelectUserMenu(i);					// for the UI
-					MessageListSetCurrentMenu(i);				// For the admin menu (bleck)
-					activeMenuLinkid = i;						// Remember the current selection (for highlight if we get back here again)
-					MessageGoToMenu(Define_ADMINLINKID);		// Return back to the admin menu		
-					return;
-				}
-			}
-			else
-				MessageGoToMenu(Define_ADMINLINKID);		// Return back to the admin menu		
-		}
-		else
-		{
-			OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
-			MessageGoToMenu(Define_ADMINLINKID);			// Return back to the admin menu
-		}
-		return;
-	}
-	
-	// For when we get back the range of menu items from the user menu :-)  We will know how many dance sequeces
-	//  there are on that user menu and that'll be our starting point. We do have to pay attention to clear
-	//  user menu items which will force us to decide there is zero again... this is a good start... :-)
-	if ((forLinkid == Define_LISTMENUSFORWAITLINKID) && (llList2String(tmpList,0) == "ITEMS"))
-	{
-		s = llList2String(tmpList,1);
-		if (llList2Integer(tmpList,2) > 0)
-		{
-			waitSequenceId = 0;
-			waitMaxSequence = llList2Integer(tmpList,2);
-			OwnerSay("WMSG002", [s, waitMaxSequence]);
-			MessageGoToMenu(Define_ADMINLINKID);			// Return back to the admin menu			
-			return;
-		} 
-		// Ok - there are no menu items there - tell the user and pretend that the range was not set...
-		//  when we get a request to get a wait sequence - they get stand_1 until they set the wait menu again
-		//  set of wait menu has to be after at least one dance is there...
-		waitMenuLinkId = 0;
-		OwnerSay("WMSG001", [s, Define_DefaultWaitAnimation]);
-		MessageGoToMenu(Define_ADMINLINKID);			// Return back to the admin menu (could go back to the menu selection list... but we're going back to admin)
-	}
+    if (cmd == MenuLite_Select)
+    {
+        // The menu returned to the user was: (back), usermenu(1),usermenu(2)...
+        cmd = llList2Integer(tmpList,1);    // Get the selected item from the list...
+        if ((cmd >= 0) & (cmd <= length))
+        {
+            if (cmd > 0)
+            {
+                if (Define_LISTMENUSTOCLEARLINKID == forLinkid)
+                {
+                    MessageClearMenu(Define_MENULISTLINKID+cmd);
+                }
+                if (Define_LISTMENUSFORWAITLINKID == forLinkid)
+                {
+                    waitMenuLinkId = Define_MENULISTLINKID+cmd;
+                    waitSequenceId = -1;
+                    waitMaxSequence = -1;    // We start with the belief that there are NO sequences there
+                    MessageGetMenuRange(waitMenuLinkId, -1, 10000, Define_LISTMENUSFORWAITLINKID);    // Force a summary list of how many dance sequences are on that menu...
+                }
+                if (Define_LISTMENUSFORCOPYFROMLINKID == forLinkid)
+                {
+                    copyFromLinkId = Define_MENULISTLINKID+cmd;
+                    MessageGoToMenu(Define_LISTMENUSFORCOPYTOLINKID);
+                    return;
+                }
+                if (Define_LISTMENUSFORCOPYTOLINKID == forLinkid)
+                {
+                    if (Define_MENULISTLINKID+cmd == copyFromLinkId)
+                    {
+                        OwnerSay("MMSG009", [copyFromLinkId-Define_MENULISTLINKID, cmd]);
+                        MessageGoToMenu(Define_LISTMENUSFORCOPYTOLINKID);
+                        return;
+                    }
+                    MessageCopyDances(copyFromLinkId, (Define_MENULISTLINKID+cmd));
+                    MessageGoToMenu(Define_ADMINLINKID);        // Return back to the admin menu        
+                    return;
+                }
+                if (Define_LISTMENUSTOSELECTMENU == forLinkid)
+                {
+                    i = Define_MENULISTLINKID+cmd;
+                    MessageUISelectUserMenu(i);                    // for the UI
+                    MessageListSetCurrentMenu(i);                // For the admin menu (bleck)
+                    activeMenuLinkid = i;                        // Remember the current selection (for highlight if we get back here again)
+                    MessageGoToMenu(Define_ADMINLINKID);        // Return back to the admin menu        
+                    return;
+                }
+            }
+            else
+            {
+                MessageGoToMenu(Define_ADMINLINKID);        // Return back to the admin menu        
+            }
+        }
+        else
+        {
+            OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
+            MessageGoToMenu(Define_ADMINLINKID);            // Return back to the admin menu
+        }
+        return;
+    }
+    
+    // For when we get back the range of menu items from the user menu :-)  We will know how many dance sequeces
+    //  there are on that user menu and that'll be our starting point. We do have to pay attention to clear
+    //  user menu items which will force us to decide there is zero again... this is a good start... :-)
+    if ((forLinkid == Define_LISTMENUSFORWAITLINKID) & (llList2String(tmpList,0) == "ITEMS"))
+    {
+        s = llList2String(tmpList,1);
+        if (llList2Integer(tmpList,2) > 0)
+        {
+            waitSequenceId = 0;
+            waitMaxSequence = llList2Integer(tmpList,2);
+            OwnerSay("WMSG002", [s, waitMaxSequence]);
+            MessageGoToMenu(Define_ADMINLINKID);            // Return back to the admin menu            
+            return;
+        } 
+        // Ok - there are no menu items there - tell the user and pretend that the range was not set...
+        //  when we get a request to get a wait sequence - they get stand_1 until they set the wait menu again
+        //  set of wait menu has to be after at least one dance is there...
+        waitMenuLinkId = 0;
+        OwnerSay("WMSG001", [s, Define_DefaultWaitAnimation]);
+        MessageGoToMenu(Define_ADMINLINKID);            // Return back to the admin menu (could go back to the menu selection list... but we're going back to admin)
+    }
 }
 
 
 // Define some constants for attachment points:
 #define HUDCenter2 31
-#define	HUDTopRight 32
+#define    HUDTopRight 32
 #define HUDTop 33
 #define HUDTopLeft 34
 #define HUDCenter 35
 #define HUDBottomLeft 36
 #define HUDBottom 37
 #define HUDBottomRight 38
-// Try to reposition the HUD so that it is on the screen (when offscreen) and center on the area that the user attached to
+// Try to reposition the HUD so that it is on the screen (when off screen) and center on the area that the user attached to
 //  Start of this routine came from:  http://www.free-lsl-scripts.com/freescripts.plx?ID=1453
 RecenterHUD(integer forceRecenter)
 {
-	integer i;
-	integer target = llGetAttached();
-	
-    if ((target == lasttarget) && !forceRecenter)
-        return;			// Still attached where we were before - no reason to auto adjust
+    integer i;
+    integer target = llGetAttached();
+    
+    if ((target == lasttarget) & !forceRecenter)
+    {
+        return;            // Still attached where we were before - no reason to auto adjust
+    }
         
-	if (0 == target)
-	{
-		OwnerSay("MMSG010", [ ProductName, llGetObjectName() ]);
-		return;
-	}
+    if (CheckEqZero(target))
+    {
+        OwnerSay("MMSG010", [ ProductBasicName, llGetObjectName() ]);
+        return;
+    }
 
-    lasttarget = target; 		// save the position we just set
+    lasttarget = target;         // save the position we just set
 
     integer targetIndex = llListFindList([HUDCenter, HUDCenter2, HUDTopLeft, HUDTop, HUDTopRight, HUDBottomLeft, HUDBottom, HUDBottomRight], [target]);
-    if (targetIndex == -1)
-    	return;			// If not attached as a HUD - out of here...
+    if (CheckEqMinusOne(targetIndex))
+    {
+        return;            // If not attached as a HUD - out of here...
+    }
 
 #ifdef BUILD_FOR_SL
-	float bottomLocation = 0.0;
-	float primWidth = 0.0;
-	list tmpList;
-	vector primLocation;
+    float bottomLocation = 0.0;
+    float primWidth = 0.0;
+    list tmpList2;
+    vector primLocation;
 
-	// We need to know the whole size of the HUD to correctly adjust for positioning. We want to
-	//  get the position of the bottom most prim - it's name is 'None,HScroll' - so loop
-	//  through the prims to find that one.
-	for (i = 1; (i < llGetNumberOfPrims()) && (bottomLocation == 0.0); ++i)
-	{
-		if ("None,HScroll" == llGetLinkName(i+1))
-		{
-			tmpList = llGetLinkPrimitiveParams(i+1, [ PRIM_SIZE, PRIM_POSITION ]);
-			primLocation = llList2Vector(tmpList, 1);
-			primLocation = primLocation - llGetRootPosition();
-			bottomLocation = primLocation.z;
-			primLocation = llList2Vector(tmpList, 0);
-			bottomLocation = bottomLocation - primLocation.z;
-			primWidth = primLocation.y / 2;
-		}
-	}
-	if (bottomLocation < 0.0)
-	    bottomLocation = -bottomLocation;
-	bottomLocation += 0.025;	// Adjust for bottom of screen a lil bit
+    // We need to know the whole size of the HUD to correctly adjust for positioning. We want to
+    //  get the position of the bottom most prim - it's name is 'None,HScroll' - so loop
+    //  through the prims to find that one.
+    for (i = 1; (i < llGetNumberOfPrims()) & (bottomLocation == 0.0); ++i)
+    {
+        if ("None,HScroll" == llGetLinkName(i+1))
+        {
+            tmpList2 = llGetLinkPrimitiveParams(i+1, [ PRIM_SIZE, PRIM_POSITION ]);
+            primLocation = llList2Vector(tmpList2, 1);
+            primLocation = primLocation - llGetRootPosition();
+            bottomLocation = primLocation.z;
+            primLocation = llList2Vector(tmpList2, 0);
+            bottomLocation = bottomLocation - primLocation.z;
+            primWidth = primLocation.y / 2;
+        }
+    }
+    if (bottomLocation < 0.0)
+    {
+        bottomLocation = -bottomLocation;
+    }
+    bottomLocation += 0.025;    // Adjust for bottom of screen a lil bit
 #endif
 #ifdef BUILD_FOR_OPENSIM
-	//  Opensim can NOT get us the location of the root prim OR any of the link items of the HUD... so we have to calculate
-	//  the size of the HUD based on how big a prim is...
+    //  Opensim can NOT get us the location of the root prim OR any of the link items of the HUD... so we have to calculate
+    //  the size of the HUD based on how big a prim is...
 
-	float bottomLocation = 0.0;
-	float primWidth = 0.0;
-	list tmpList;
-	vector primSize;
+    float bottomLocation = 0.0;
+    float primWidth = 0.0;
+    list tmpList2;
+    vector primSize;
 
-	// Get the bottom most prim - it is a specific size - so we know what it has to be width or height
-	for (i = 1; (i < llGetNumberOfPrims()) && (bottomLocation == 0.0); ++i)
-	{
-		if ("None,HScroll" == llGetLinkName(i+1))
-		{
-			tmpList = llGetLinkPrimitiveParams(i+1, [ PRIM_SIZE]);
-			primSize = llList2Vector(tmpList, 0);
-			primWidth = primSize.y / 2;
-			bottomLocation = (1080 + 330000*primSize.z)/10000.0;
-		}
-	}
-	bottomLocation += 0.025;	// Adjust for bottom of screen a lil bit
+    // Get the bottom most prim - it is a specific size - so we know what it has to be width or height
+    for (i = 1; (i < llGetNumberOfPrims()) & (bottomLocation == 0.0); ++i)
+    {
+        if ("None,HScroll" == llGetLinkName(i+1))
+        {
+            tmpList2 = llGetLinkPrimitiveParams(i+1, [ PRIM_SIZE]);
+            primSize = llList2Vector(tmpList2, 0);
+            primWidth = primSize.y / 2;
+            bottomLocation = (1080 + 330000*primSize.z)/10000.0;
+        }
+    }
+    bottomLocation += 0.025;    // Adjust for bottom of screen a lil bit
 #endif
 
 #define Y_CENTER_NO_MOVE 0.0
 
 #define Z_TOP_ADJUSTMENT -0.025
 #define Z_LEFT_TOP_ADJUSTMENT -0.045
-	// Viewer 2 and Kirstens and Firestorm all put something in the top left corner of the screen... (sigh)
+    // Viewer 2 and Kirstens and Firestorm all put something in the top left corner of the screen... (sigh)
 
     float Y = llList2Float([1-(primWidth*2), -1+(primWidth*2), -primWidth, Y_CENTER_NO_MOVE, primWidth, -primWidth, Y_CENTER_NO_MOVE, primWidth], targetIndex);
     float Z = llList2Float([bottomLocation/2, bottomLocation/2, Z_LEFT_TOP_ADJUSTMENT, Z_TOP_ADJUSTMENT, Z_TOP_ADJUSTMENT, bottomLocation, bottomLocation, bottomLocation], targetIndex);
     
     vector newtarget = <0.0,Y,Z>;
-    llSetPos (newtarget);
+    llSetLinkPrimitiveParamsFast(LINK_THIS,[PRIM_POSITION,newtarget]);
 }
 
 
+PrintBigString(string str)
+{
+    integer i;
+    integer j;
+
+    // All done gathering it - now display it... llOwnerSay is limited to 1023 characters - so if we have a BIG string, break it into multiple parts...
+    j = llStringLength(str);
+    if (j > 1000)
+    {
+        for (i=0; i<j; i+=1000)
+        {
+            // Is this a string fragment of 1023 or the tail end of the string
+            if (i+1023 < j)
+            {
+                llOwnerSay(llGetSubString(str, i, i+999)+"\\");
+            }
+            else
+            {
+                llOwnerSay(llGetSubString(str, i, -1));
+            }
+        }
+    }
+    else
+        llOwnerSay(str);
+}
+
+
+// Show the specified sequence - either prepared or unprepared (flag determines which)
+// The only difference in a prepared sequence is that the dance token is displayed in a lot more detail
+ShowSequence(string prefix)
+{
+    integer i;
+    integer j;
+    integer k;
+    string str;
+    list item;
+    integer cmd;
+    list output;
+    
+    j = llGetListLength(sequence);
+    output = [];
+    for (i=0; i<j; ++i)
+    {
+        item = llParseString2List(llList2String(sequence, i), ["|"], []);
+        cmd = llList2Integer(item, Define_SequenceKeyword);
+        
+        // Check for keywords that we just print the item - so dance and delay
+        k = llListFindList([keywordDance, keywordDelay], [cmd]);
+        if (CheckNeqMinusOne(k))
+        {
+            if (k == 1)    // Delay keyword - we need to divide the delay by 10.0 - we'll use strings to do it easily and neatly...
+            {
+                str = llList2String(item, Define_SequenceParm1);
+                AppendStringToList(output, llGetSubString(str,0,-2)+"."+llGetSubString(str,-1,-1));
+            }
+            else
+            {    // Dance keyword - variation is if we have a prepared sequence or not... unprepared has only 2 items
+                if (llGetListLength(item) == 2)
+                {
+                    AppendStringToList(output, llList2String(item, Define_SequenceParm1));
+                }
+                else
+                {
+                    // Showing a prepared dance sequence - we have a few more options to display here...
+                    // Note: We do NOT know the aliases for all the groups, no sense in attempting to display them...
+                    str = llList2String(item, Define_SequenceParm1)+"(group="+
+                        llList2String(["Unknown"]+Define_GroupNames,llListFindList(Define_GroupBits, [llList2Integer(item, Define_SequenceParm2)])+1)
+                        + llList2String(["", "", ", start" , ", stop"], llList2Integer(item, Define_SequenceParm3)+1)
+                        + ", dance index="+(string)llList2Integer(item, Define_SequenceParm4)+")";
+                    AppendStringToList(output, str);
+                }
+            }
+        }
+        else
+        {
+            // Check for keywords that only have outer parameters...
+            if (CheckNeqMinusOne(llListFindList([keywordDialog, keywordIM, keywordMenuStyle, keywordName, keywordNextSequence, keywordOwner_say, keywordSetname, keywordStyle], [cmd])))
+            {
+                AppendStringToList(output, "["+llList2String(keywordTable, cmd)+"]"+llList2String(item, Define_SequenceParm1));
+            }
+            else
+            {
+                // Now check for only inner parameters...
+                if (CheckNeqMinusOne(llListFindList([keywordLoop, keywordMix, keywordRand, keywordRandom], [cmd])))
+                {
+                    AppendStringToList(output, "["+llList2String(keywordTable, cmd)+" "+llList2String(item, Define_SequenceParm1)+"]");
+                }
+                else
+                {
+                    // We have a class of keywords that have inner and outer parameters... so do them now...
+                    if (CheckNeqMinusOne(llListFindList([keywordAlias, keywordGroup, keywordMenu, keywordMessage, keywordRegion_say, keywordSay, keywordShout, keywordWhisper], [cmd])))
+                    {
+                        AppendStringToList(output, "["+llList2String(keywordTable, cmd)+" "+llList2String(item, Define_SequenceParm1)+"]"+llList2String(item, Define_SequenceParm2));
+                    }
+                    else
+                    {
+                        // The remaining keywords are just keywords with no parameters...
+                        AppendStringToList(output, "["+llList2String(keywordTable, cmd)+"]");
+                    }
+                }
+            }
+        }
+    }
+
+    PrintBigString(prefix + llDumpList2String(output, "|"));
+}
+
 default
 {
-	state_entry()
-	{
-		ownerKey = llGetOwner();
-		
-		// As we startup, it is good to tell the user what we are starting...
-		llOwnerSay(CompanyName+" "+ProductName+" revision:"+DanceHUD_Revision);
-	}
+    state_entry()
+    {
+        ownerKey = llGetOwner();
+    }
 
-	// This script is controlled completely by linked messages - everything comes in and goes out with a linked message
-	link_message(integer sender_num, integer num, string str, key id)
-	{
-		// Optimize for dropping messages very quickly - so not a lot of lag during useless message handling
-		//  think of this as an optimized get out of here quickly check.
-		if (-1 == llListFindList([Define_LISTMENUSTOCLEARLINKID, Define_LISTMENUSFORWAITLINKID, Define_LISTMENUSFORCOPYFROMLINKID, 
-					Define_LISTMENUSFORCOPYTOLINKID, Define_SERVICESLINKID, Define_LISTMENUSTOSELECTMENU, 0], [num]))
-		{
-			return;	// Not our message - poof - go away quickly
-		}
+    changed(integer flag)
+    {
+        if (flag & CHANGED_OWNER)
+            llResetScript();
+    }
 
-		tmpList = llParseString2List(str, ["|"], []);
+    // This script is controlled completely by linked messages - everything comes in and goes out with a linked message
+    link_message(integer sender_num, integer num, string str, key id)
+    {
+        tmpList = llParseString2List(str, ["|"], []);
 
-		if (Define_LISTMENUSTOCLEARLINKID == num)
-		{
-			HandleListOfUserMenus(CLEAR_WHICH_USER_MENU_NAME, Define_LISTMENUSTOCLEARLINKID);
-			return;
-		}
+        if (Define_LISTMENUSTOCLEARLINKID == num)
+        {
+            HandleListOfUserMenus(CLEAR_WHICH_USER_MENU_NAME, Define_LISTMENUSTOCLEARLINKID);
+            return;
+        }
 
-		if (Define_LISTMENUSFORWAITLINKID == num)
-		{
-			HandleListOfUserMenus(SELECT_WHICH_USER_MENU_NAME, Define_LISTMENUSFORWAITLINKID);
-			return;
-		}
+        if (Define_LISTMENUSFORWAITLINKID == num)
+        {
+            HandleListOfUserMenus(SELECT_WHICH_USER_MENU_NAME, Define_LISTMENUSFORWAITLINKID);
+            return;
+        }
 
-		if (Define_LISTMENUSFORCOPYFROMLINKID == num)
-		{
-			HandleListOfUserMenus(COPY_FROM_WHICH_USER_MENU_NAME, Define_LISTMENUSFORCOPYFROMLINKID);
-			return;
-		}
+        if (Define_LISTMENUSFORCOPYFROMLINKID == num)
+        {
+            HandleListOfUserMenus(COPY_FROM_WHICH_USER_MENU_NAME, Define_LISTMENUSFORCOPYFROMLINKID);
+            return;
+        }
 
-		if (Define_LISTMENUSFORCOPYTOLINKID == num)
-		{
-			HandleListOfUserMenus(COPY_TO_WHICH_USER_MENU_NAME, Define_LISTMENUSFORCOPYTOLINKID);
-			return;
-		}
+        if (Define_LISTMENUSFORCOPYTOLINKID == num)
+        {
+            HandleListOfUserMenus(COPY_TO_WHICH_USER_MENU_NAME, Define_LISTMENUSFORCOPYTOLINKID);
+            return;
+        }
 
-		if (Define_LISTMENUSTOSELECTMENU == num)
-		{
-			HandleListOfUserMenus(SELECT_ACTIVE_USER_MENU, Define_LISTMENUSTOSELECTMENU);
-			return;
-		}
+        if (Define_LISTMENUSTOSELECTMENU == num)
+        {
+            HandleListOfUserMenus(SELECT_ACTIVE_USER_MENU, Define_LISTMENUSTOSELECTMENU);
+            return;
+        }
 
-		// Handle the service specific messages...
-		if (num == Define_SERVICESLINKID)
-		{
-			integer i = (integer)str;
-			if (Service_GetWaitSequence == i)
-			{
-				if ((waitMenuLinkId > 0) && (waitSequenceId != -1))
-				{
-					MessageSelectNumberWaitseq(waitMenuLinkId, waitSequenceId);
-					waitSequenceId++;
-					if (waitSequenceId >= waitMaxSequence)
-						waitSequenceId = 0;
-				}
-				else
-				{
-					string s;
-	  				s = llDumpList2String([llDumpList2String([keywordDance, Define_DefaultWaitAnimation, Define_GroupAllBits, Define_DanceStart, 0],"|"),
-					    				   llDumpList2String([keywordDelay, Define_DefaultDanceDuration], "|"),
-		   		  							keywordRepeat], "|||");
-				 	MessageSendSequenceWaitseq(Define_DANCECONTROLLINKID, "Default wait", s, Define_INVENTORYANIMLINKID);
-				}
-				return;
-			}
-			if (Service_RecenterHUD == i)
-			{
-				RecenterHUD(TRUE);
-				return;
-			}
-			if (Service_SetActiveMenu == i)
-			{
-				activeMenuLinkid = (integer)((string)id);
-				return;
-			}
-		}
+        // Handle the service specific messages...
+        if (num == Define_SERVICESLINKID)
+        {
+            integer i = (integer)str;
+            if (Service_GetWaitSequence == i)
+            {
+                if ((waitMenuLinkId > 0) && (CheckNeqMinusOne(waitSequenceId)))
+                {
+                    MessageSelectNumberWaitseq(waitMenuLinkId, waitSequenceId);
+                    ++waitSequenceId;
+                    if (waitSequenceId >= waitMaxSequence)
+                    {
+                        waitSequenceId = 0;
+                    }
+                }
+                else
+                {
+                    string s;
+                    s = llDumpList2String([(string)keywordDance + "|" + Define_DefaultWaitAnimation + "|" + (string)Define_GroupAllBits + "|" + (string)Define_DanceStart + "|" + (string) 0,
+                                           (string)keywordDelay + "|" + (string)Define_DefaultDanceDuration,
+                                                 (string)keywordRepeat], "|||");
+                    MessageSendSequenceWaitseq(Define_DANCECONTROLLINKID, "Default wait", s, Define_INVENTORYANIMLINKID);
+                }
+                return;
+            }
+            if (Service_RecenterHUD == i)
+            {
+                RecenterHUD(TRUE);
+                return;
+            }
+            if (Service_SetActiveMenu == i)
+            {
+                activeMenuLinkid = (integer)((string)id);
+                return;
+            }
+        }
 
-		// If the script was reset, then make sure that EVERYTHING has been reset
-		if ((0 == num) && (str == "RESET"))
-		{
-			llResetScript();
-		}
-	}	// End of link message
+        // If it's our message for debugging commands - do something
+        if (num == Define_DEBUGMSGLINKID)
+        {
+            list cmd = llParseString2List(str, ["|"], []);
+            integer debugCmd = llList2Integer(cmd,0);
+            
+            if (debugCmd == Debug_ShowSequence)
+            {
+                sequence = llParseString2List((string)id, ["|||"],[]);        
+                ShowSequence("Sequence: "+llList2String(cmd,1)+":");
+            }
+            if (debugCmd == Debug_StartCapture)
+            {
+                capture = TRUE;
+                llOwnerSay("Debug - started capturing debugging information");
+            }
+            if (debugCmd == Debug_StopCapture)
+            {
+                capture = FALSE;
+                llOwnerSay("Debug - stopped capturing debugging information");
+            }
+            if (debugCmd == Debug_PrintOn)
+            {
+                printEveryMsg = TRUE;
+                llOwnerSay("Debug - started printing debug information");
+            }
+            if (debugCmd == Debug_PrintOff)
+            {
+                printEveryMsg = FALSE;
+                llOwnerSay("Debug - stopped printing debug information");
+            }
+            if (debugCmd == Debug_ShowCaptured)
+            {
+                integer i;
+                
+                for (i=0; i < count; ++i)
+                {
+                    PrintBigString("FSD:"+llList2String(msgs,i));
+                }
+            }
+            return;
+        }
 
-	attach(key attached)
-	{
-		if (attached != NULL_KEY)	// Is the hud attached?
-		{
-			if (ownerKey != llGetOwner())	// If the owner changed and we got attached - reset the HUD
-				MessageReset();
+        if (capture)
+        {
+            string tmp = llDumpList2String([llGetTime(), num, str, id],"@");
+            AppendStringToList(msgs, tmp);
+            if (printEveryMsg)
+            {
+                PrintBigString("FSD:"+tmp);
+            }
+            ++count;
+            
+            // If we are at our limit of messages, then remove the first one from the lists
+            if (count >= MAX_MESSAGES)
+            {
+                // First we remove the very first entry
+                msgs = DeleteListEntry(msgs, 0);
+                --count;
+            }
+        }
 
-			// If we just attached - then try to re-center outselves (especially if the HUD is off the screen)
-			RecenterHUD(FALSE);
-		}
-	}
+        // If the script was reset, then make sure that EVERYTHING has been reset
+        if (CheckEqZero(num) && (str == "RESET"))
+        {
+            llResetScript();
+        }
+    }    // End of link message
 
-	// If they rez us and the owner changed - reset the HUD (all scripts, all parts)
-	on_rez(integer r)
-	{
-		if (ownerKey != llGetOwner())
-			MessageReset();
-	}
+    attach(key attached)
+    {
+        if (attached != NULL_KEY)    // Is the hud attached?
+        {
+            if (ownerKey != llGetOwner())    // If the owner changed and we got attached - reset the HUD
+                MessageReset();
+
+            // If we just attached - then try to re-center ourselves (especially if the HUD is off the screen)
+            RecenterHUD(FALSE);
+        }
+    }
+
+    // If they rez us and the owner changed - reset the HUD (all scripts, all parts)
+    on_rez(integer r)
+    {
+        if (ownerKey != llGetOwner())
+            MessageReset();
+    }
 }
 

@@ -1,3 +1,5 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
 // FSLists - this script is all about remembering/searching/clearing lists of dance sequences/macros
 //           and it does it for anything that is in the inventory of the prim. We also do
 //           admin and help menus here...
@@ -9,19 +11,24 @@
 //  1) Get a list of items (list of sequence names or menu items actually)
 //  2) Select an item - this is where the admin commands are effective
 //  3) Get a sequence - inventory do these
+//  4) HUD resizing (vertical and horozontal) and theme setting menus
+//
+// There used to be a FSLists2 - pulled its source into this script as there
+// was plenty of code space for it.
 //
 // There will ONLY be ONE of these scripts running
 //
 // The addition of menu adjustments is because of space - this script was smaller than others
 // so we put the menu prim adjustment code here to make it fit nicely.
 //
-// Nothing to reset in this script - so no RESET option handling...
+// Note: There are differences in how SL and OpenSim handle resizing... sigh
 
 #include "Trace"
 #ifdef UNIT_TEST_TRACING
 #define MODULE "FSLists:"
 #endif
 #include "GlobalDefinitions"
+#include "LinkIds.h"
 #include "Lists.h"
 #include "MenuList.h"
 #include "DanceControl.h"
@@ -36,12 +43,13 @@
 #include "UtilOwnerSay"
 
 // Global variables
-integer adminOptions = 0;					// What flags are set for the various administrative settings? (AO and Admin - see Lists.h for details)
-string aoName = "<none loaded>";			// What was the last AO notecard name that we loaded successfully?
-integer defaultDanceDuration = DefaultDanceDuration;	// Number of seconds for default dance duration
-integer menuLinkid = 0;						// What is the menu link id of the currently active user menu? (we use this only as a display item in the admin menu)
-integer recordToLinkid = 0;					// What menu are we recording into for freestyle recordings?
-
+integer adminOptions = 0;                   // What flags are set for the various administrative settings? (AO and Admin - see Lists.h for details)
+string aoName = "<none loaded>";            // What was the last AO notecard name that we loaded successfully?
+integer defaultDanceDuration = DefaultDanceDuration;    // Number of seconds for default dance duration
+integer menuLinkid = 0;                     // What is the menu link id of the currently active user menu? (we use this only as a display item in the admin menu)
+integer recordToLinkid = 0;                 // What menu are we recording into for freestyle recordings?
+integer adminMenuActive = FALSE;            // Was the admin menu active last?
+integer transparent = 0;                    // 'current' transparency setting
 
 // Transient variables
 list tmpList = [];
@@ -51,12 +59,12 @@ integer i;
 // Common routines - related to set/get bits
 integer IsAdminBitSet(integer flag)
 {
-	return ((adminOptions & flag) == flag);
+    return ((adminOptions & flag) == flag);
 }
 
 FlipAdminBit(integer flag)
 {
-	adminOptions = adminOptions ^ flag;
+    adminOptions = adminOptions ^ flag;
 }
 
 
@@ -66,259 +74,286 @@ FlipAdminBit(integer flag)
 #define ADMIN_MENU_NAME "Administrative Menu"
 HandleAdminMenu()
 {
-	integer cmd = llList2Integer(tmpList,0);
-	integer j;
+    integer cmd = llList2Integer(tmpList,0);
+    integer j;
 
-	// Goal is a FAST admin menu instead of a 2 second delay... so we do this by forcing the strings to be
-	//  static and calculated in advance. We know what the menu contains for the static sections and even
-	//  most all of the dynamic - so calculate what we must up front, then build a list of options and
-	//  stringify them all in one shot and sendem quick. This takes out the ability to define the admin
-	//  menu items in the header as a list - but will make the menu very fast.
-	//
-	// We know the menu range - it starts at 0 and goes to 30 items and we know the menu items and the
-	//  return items will be (for each item): "menu item|adminLinkid|admin command" - as that is what we
-	//  have to generate. Let's calculate the only hard part - which is what selection type do we have.
-	//  Then generate the static entries - inline.
-	if (cmd == MenuLite_GetMenuRange)
-	{
-		integer linkid = llList2Integer(tmpList, 2);
-	
-		j = 0;
-		if (IsAdminBitSet(AdminDanceSelectionAuto))
-		{
-			if (IsAdminBitSet(AdminDanceSelectAutomaticRandom))
-				j = 2;
-			else
-				j = 1;
-		}
+    adminMenuActive = TRUE;
 
-		tmpList = [ "#1 Back|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuPrevMenu,
-					"#2 Sync|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuSync,
-					"#3 Add dancers|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuAddDancer,
-					"#4 Remove dancers|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuRemoveDancer,
-					"#5 Change dancer groups|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuChangeDancerGroups,
-					"#6 Load notecard|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuLoadNotecard,
-					"#7 Set wait sequence menu|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuSetWaitMenu,
-					"#8 Copy dances/delays|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuCopyDances,
-					"#9 Clear menu|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuClearMenu,
-					"#10 Set theme|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuSetTheme,
-					"#11 Change HUD height|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuChangeHeight,
-					"#12 Change HUD width|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuChangeWidth,
-					"#13 Load all animations|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuPreloadAnims,
-					"#14 Reset|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuReset,
-					"#15 Read Getting started|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuReadMe,
-					" |"+(string)Define_COMMENTBLANKLINKID+"|"+(string)AdminMenuNoOp,
-					"Settings (click to change):|"+(string)Define_COMMENTBLANKLINKID+"|"+(string)AdminMenuNoOp,
-					"#18 Dance selection:"+llList2String(["Manual|", "All|", "Random|"], j)+(string)Define_ADMINLINKID+"|"+(string)AdminMenuDanceSelection,
-					"#19 Default dance duration:"+llList2String(["N/A|", (string)defaultDanceDuration+"|", (string)defaultDanceDuration+"|"], j)+(string)Define_ADMINLINKID+"|"+(string)AdminMenuDanceDuration,
-					"#20 Missing dance warnings:"+llList2String(["On load notecard|", "While dancing|"], IsAdminBitSet(AdminErrorsOnLoad))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuMissingDanceWarning,
-					"#21 Keep blank lines:"+llList2String(["No|", "Yes|"], IsAdminBitSet(AdminKeepBlankLines))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuKeepBlankLines,
-					"#22 Keep comment lines:"+llList2String(["No|", "Yes|"], IsAdminBitSet(AdminKeepCommentLines))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuKeepCommentLines,
-					"#23 Repeat sequences:"+llList2String(["Enabled|", "Disabled|"], IsAdminBitSet(AdminKeepRepeats))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuKeepRepeats,
-					"#24 Freestyle recording:"+llList2String(["Off|","On (menu "+(string)(recordToLinkid-MenuBaseNumber)+")|"],IsAdminBitSet(AdminRecordDances))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuRecordFreestyleSequences,
-					"#25 Time animations:"+llList2String(["Off|","On|"],IsAdminBitSet(AdminTimeAnimations))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuTimeAnimations,
-					"#26 Active menu:"+(string)(menuLinkid-Define_MENULISTLINKID)+"|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuSetUserMenu ];
+    // Goal is a FAST admin menu instead of a 2 second delay... so we do this by forcing the strings to be
+    //  static and calculated in advance. We know what the menu contains for the static sections and even
+    //  most all of the dynamic - so calculate what we must up front, then build a list of options and
+    //  stringify them all in one shot and sendem quick. This takes out the ability to define the admin
+    //  menu items in the header as a list - but will make the menu very fast.
+    //
+    // We know the menu range - it starts at 0 and goes to 30 items and we know the menu items and the
+    //  return items will be (for each item): "menu item|adminLinkid|admin command" - as that is what we
+    //  have to generate. Let's calculate the only hard part - which is what selection type do we have.
+    //  Then generate the static entries - inline.
+    if (cmd == MenuLite_GetMenuRange)
+    {
+        integer linkid = llList2Integer(tmpList, 2);
+    
+        j = 0;
+        if (IsAdminBitSet(AdminDanceSelectionAuto))
+        {
+            j = 1;
+            if (IsAdminBitSet(AdminDanceSelectAutomaticRandom))
+            {
+                j = 2;
+            }
+        }
 
-		tmpStr = llDumpList2String(tmpList, "|||");
-		MessageSendMenuRange(linkid, ADMIN_MENU_NAME, AdminMenuMaxCommand+2, 0, Define_FlagRangeConstrainedMenu, Define_ADMINLINKID, tmpStr);
-			// Length = max command +2 - one for blank line that was not added, one for starting at zero
-		tmpList = [];
-		tmpStr = "";
-		return;
-	}
+        tmpList = [ "#1 Back|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuPrevMenu,
+                    "#2 Sync|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuSync,
+                    "#3 Add dancers|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuAddDancer,
+                    "#4 Remove dancers|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuRemoveDancer,
+                    "#5 Change dancer groups|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuChangeDancerGroups,
+                    "#6 Load notecard|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuLoadNotecard,
+                    "#7 Set wait sequence menu|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuSetWaitMenu,
+                    "#8 Copy dances/delays|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuCopyDances,
+                    "#9 Clear menu|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuClearMenu,
+                    "#10 Set theme|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuSetTheme,
+                    "#11 Set transparency|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuSetTransparency,
+                    "#12 Change HUD height|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuChangeHeight,
+                    "#13 Change HUD width|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuChangeWidth,
+                    "#14 Load all animations|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuPreloadAnims,
+                    "#15 Reset|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuReset,
+                    "#16 Read Getting started|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuReadMe,
+                    "#17 Transfer|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuTransfer,
+                    "#18 Update|"+(string)Define_UPDATELINKID+"|"+(string)AdminMenuUpdate,
+                    " |"+(string)Define_COMMENTBLANKLINKID+"|"+(string)AdminMenuNoOp,
+                    "Settings (click to change):|"+(string)Define_COMMENTBLANKLINKID+"|"+(string)AdminMenuNoOp,
+                    "#19 Dance selection:"+llList2String(["Manual|", "All|", "Random|"], j)+(string)Define_ADMINLINKID+"|"+(string)AdminMenuDanceSelection,
+                    "#20 Default dance duration:"+llList2String(["N/A|", (string)defaultDanceDuration+"|", (string)defaultDanceDuration+"|"], j)+(string)Define_ADMINLINKID+"|"+(string)AdminMenuDanceDuration,
+                    "#21 Missing dance warnings:"+llList2String(["On load notecard|", "While dancing|"], IsAdminBitSet(AdminErrorsOnLoad))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuMissingDanceWarning,
+                    "#22 Keep blank lines:"+llList2String(["No|", "Yes|"], IsAdminBitSet(AdminKeepBlankLines))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuKeepBlankLines,
+                    "#23 Keep comment lines:"+llList2String(["No|", "Yes|"], IsAdminBitSet(AdminKeepCommentLines))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuKeepCommentLines,
+                    "#24 Repeat sequences:"+llList2String(["Enabled|", "Disabled|"], IsAdminBitSet(AdminKeepRepeats))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuKeepRepeats,
+                    "#25 Freestyle recording:"+llList2String(["Off|","On (menu "+(string)(recordToLinkid-MenuBaseNumber)+")|"],IsAdminBitSet(AdminRecordDances))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuRecordFreestyleSequences,
+                    "#26 Time animations:"+llList2String(["Off|","On|"],IsAdminBitSet(AdminTimeAnimations))+(string)Define_ADMINLINKID+"|"+(string)AdminMenuTimeAnimations,
+                    "#27 Active menu:"+(string)(menuLinkid-Define_MENULISTLINKID)+"|"+(string)Define_ADMINLINKID+"|"+(string)AdminMenuSetUserMenu ];
+
+        tmpStr = llDumpList2String(tmpList, "|||");
+        MessageSendMenuRange(linkid, ADMIN_MENU_NAME, llGetListLength(tmpList)+2, 0, Define_FlagRangeConstrainedMenu, Define_ADMINLINKID, tmpStr);
+            // Length = max command +2 - one for blank line that was not added, one for starting at zero
+        tmpList = [];
+        tmpStr = "";
+        return;
+    }
 
 
-	if (cmd == MenuLite_Select)
-	{
-		// The menu returned to the user was: (back), adminmenu(1),adminmenu(2)...
-		cmd = llList2Integer(tmpList,1);	// Get the selected item from the list...
-		if ((cmd >= AdminMenuPrevMenu) && (cmd <= AdminMenuMaxCommand))
-		{
-			// if (cmd == AdminMenuPrevMenu) - no reason to check - just fall through and we return to the user menu
-			if (cmd == AdminMenuSync)
-				MessageSyncAllDancers();	// Fall through to return to the user menu
-			if (cmd == AdminMenuAddDancer)
-			{
-				MessageGoToMenu(Define_ADDDANCERLINKID);
-				return;
-			}
-			if (cmd == AdminMenuRemoveDancer)
-			{
-				MessageGoToMenu(Define_REMOVEDANCERSLINKID);
-				return;
-			}
-			if (cmd == AdminMenuChangeDancerGroups)
-			{
-				MessageGoToMenu(Define_LISTDANCERSLINKID);
-				return;
-			}
-			if (cmd == AdminMenuLoadNotecard)
-			{
-				MessageGoToMenu(Define_LISTNOTECARDLINKID);
-				return;
-			}
-			if (cmd == AdminMenuMissingDanceWarning)
-			{
-					// Easy peasy - flip the bit and tell the read and dance control routines (they
-					//  are responsible for whining about missing animations or not) - then back to the
-					//  admin menu for us! (yahoo!)
-					FlipAdminBit(AdminErrorsOnLoad);
-					MessageLoadMissingAnimFlag(IsAdminBitSet(AdminErrorsOnLoad));
-					MessageDCMissingAnimFlag(IsAdminBitSet(AdminErrorsOnLoad));
-					MessageGoToMenu(Define_ADMINLINKID);
-					return;
-			}
-			if (cmd == AdminMenuKeepBlankLines)
-			{
-					FlipAdminBit(AdminKeepBlankLines);
-					MessageKeepBlankLinesFlag(IsAdminBitSet(AdminKeepBlankLines));
-					MessageGoToMenu(Define_ADMINLINKID);
-					return;
-			}
-			if (cmd == AdminMenuKeepCommentLines)
-			{
-					FlipAdminBit(AdminKeepCommentLines);
-					MessageKeepCommentLinesFlag(IsAdminBitSet(AdminKeepCommentLines));
-					MessageGoToMenu(Define_ADMINLINKID);
-					return;
-			}
-			if (cmd == AdminMenuKeepRepeats)
-			{
-					FlipAdminBit(AdminKeepRepeats);
-					MessageKeepCommentLinesFlag(IsAdminBitSet(AdminKeepRepeats));
-					MessageGoToMenu(Define_ADMINLINKID);
-					return;
-			}
-			if (cmd == AdminMenuDanceSelection)
-			{
-					// Determine the current current setting so we know how to advance
-					//  to the next state (this is a trinary state button):
-					//  Manual -> All -> Random -> Manual
-					j = 0;
-					if (IsAdminBitSet(AdminDanceSelectionAuto))
-					{
-						if (IsAdminBitSet(AdminDanceSelectAutomaticRandom))
-							j = 2;
-						else
-							j = 1;
-					}
-					j ++;
-					if (j > 2)
-						j = 0;
-					if (j == 0)
-					{
-						FlipAdminBit(AdminDanceSelectionAuto);	// From Random - we flip both selection (to manual) and to All (False)
-						FlipAdminBit(AdminDanceSelectAutomaticRandom);
-					}
-					else
-					{
-						if (j == 1)
-							FlipAdminBit(AdminDanceSelectionAuto);	// From Manual - we flip selection (to manual) - to lead to All
-						else
-							FlipAdminBit(AdminDanceSelectAutomaticRandom);	// From All we flip random to Random						
-					}
-					MessageDCSetDurationFlag(IsAdminBitSet(AdminDanceSelectionAuto));
-					MessageUISetDanceSelection(IsAdminBitSet(AdminDanceSelectAutomaticRandom));	// 0 == all(or next), 1 = random
-					MessageGoToMenu(Define_ADMINLINKID);
-					return;
-			}
-			if (cmd == AdminMenuDanceDuration)
-			{
-				// We do NOT handle the setting of the default dance duration - this is a chat command so that the user
-				//  can specify ANY duration - we just print the pretty message and duck.
-				MessageChatError("DCMSG023");
-				return;
-			}
-			if (cmd == AdminMenuCopyDances)
-			{
-				MessageGoToMenu(Define_LISTMENUSFORCOPYFROMLINKID);
-				return;
-			}
-			if (cmd == AdminMenuChangeHeight)
-			{
-				MessageGoToMenu(Define_LISTCHANGEHEIGHTLINKID);
-				return;
-			}
-			if (cmd == AdminMenuChangeWidth)
-			{
-				MessageGoToMenu(Define_LISTCHANGEWIDTHLINKID);
-				return;
-			}
-			if (cmd == AdminMenuClearMenu)
-			{
-				MessageGoToMenu(Define_LISTMENUSTOCLEARLINKID);
-				return;
-			}
-			if (cmd == AdminMenuTimeAnimations)
-			{
-				FlipAdminBit(AdminTimeAnimations);				
-				MessageShowDanceDurations(IsAdminBitSet(AdminTimeAnimations));			// Sent to all dancers with the hope that one of them is the owner
-				MessageGoToMenu(Define_ADMINLINKID);
-				return;
-			}
-			if (cmd == AdminMenuRecordFreestyleSequences)
-			{
-				FlipAdminBit(AdminRecordDances);
-				recordToLinkid = menuLinkid;		// Remember the menu we are recording sequences into (just for display)
-				MessageSetRecordingSequences(IsAdminBitSet(AdminRecordDances));	// Sends to UI to get the active user menu and that sends to the dancecontrol script to do it...
-				MessageGoToMenu(Define_ADMINLINKID);
-				return;
-			}
-			if (cmd == AdminMenuNoOp)
-			{
-				MessageGoToMenu(Define_ADMINLINKID);
-				return;			
-			}
-			if (cmd == AdminMenuReset)
-			{
-				MessageReset();
-				return;
-			}
-			if (cmd == AdminMenuSetTheme)
-			{
-				MessageGoToMenu(Define_INVENTORYTHEMELINKID);
-				return;
-			}
-			if (cmd == AdminMenuSetWaitMenu)
-			{
-				MessageGoToMenu(Define_LISTMENUSFORWAITLINKID);
-				return;
-			}
-			if (cmd == AdminMenuSetUserMenu)
-			{
-				MessageGoToMenu(Define_LISTMENUSTOSELECTMENU);
-				return;
-			}
-			if (cmd == AdminMenuPreloadAnims)
-			{
-				MessageDCLoadAllAnims();
-				return;					// Support routines will return us to a menu (could be admin, could be loading animations...)
-			}
-			if (cmd == AdminMenuReadMe)
-			{
-				llGiveInventory(llGetOwner(), ReadMeGettingStarted);
-				MessageGoToMenu(Define_ADMINLINKID);				
-				return;
-			}
-		}
-		else
-			OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
+    if (cmd == MenuLite_Select)
+    {
+        // The menu returned to the user was: (back), adminmenu(1),adminmenu(2)...
+        cmd = llList2Integer(tmpList,1);    // Get the selected item from the list...
+        if ((cmd >= AdminMenuPrevMenu) & (cmd <= AdminMenuMaxCommand))
+        {
+            // if (cmd == AdminMenuPrevMenu) - no reason to check - just fall through and we return to the user menu
+            if (cmd == AdminMenuSync)
+            {
+                MessageSyncAllDancers();    // Fall through to return to the user menu
+            }
+            if (cmd == AdminMenuAddDancer)
+            {
+                MessageGoToMenu(Define_ADDDANCERLINKID);
+                return;
+            }
+            if (cmd == AdminMenuRemoveDancer)
+            {
+                MessageGoToMenu(Define_REMOVEDANCERSLINKID);
+                return;
+            }
+            if (cmd == AdminMenuChangeDancerGroups)
+            {
+                MessageGoToMenu(Define_LISTDANCERSLINKID);
+                return;
+            }
+            if (cmd == AdminMenuLoadNotecard)
+            {
+                MessageGoToMenu(Define_LISTNOTECARDLINKID);
+                return;
+            }
+            if (cmd == AdminMenuMissingDanceWarning)
+            {
+                    // Easy peasy - flip the bit and tell the read and dance control routines (they
+                    //  are responsible for whining about missing animations or not) - then back to the
+                    //  admin menu for us! (yahoo!)
+                    FlipAdminBit(AdminErrorsOnLoad);
+                    MessageLoadMissingAnimFlag(IsAdminBitSet(AdminErrorsOnLoad));
+                    MessageDCMissingAnimFlag(IsAdminBitSet(AdminErrorsOnLoad));
+                    MessageGoToMenu(Define_ADMINLINKID);
+                    return;
+            }
+            if (cmd == AdminMenuKeepBlankLines)
+            {
+                    FlipAdminBit(AdminKeepBlankLines);
+                    MessageKeepBlankLinesFlag(IsAdminBitSet(AdminKeepBlankLines));
+                    MessageGoToMenu(Define_ADMINLINKID);
+                    return;
+            }
+            if (cmd == AdminMenuKeepCommentLines)
+            {
+                    FlipAdminBit(AdminKeepCommentLines);
+                    MessageKeepCommentLinesFlag(IsAdminBitSet(AdminKeepCommentLines));
+                    MessageGoToMenu(Define_ADMINLINKID);
+                    return;
+            }
+            if (cmd == AdminMenuKeepRepeats)
+            {
+                    FlipAdminBit(AdminKeepRepeats);
+                    MessageDCDisableRepeatFlag(IsAdminBitSet(AdminKeepRepeats));
+                    MessageGoToMenu(Define_ADMINLINKID);
+                    return;
+            }
+            if (cmd == AdminMenuDanceSelection)
+            {
+                    // Determine the current current setting so we know how to advance
+                    //  to the next state (this is a trinary state button):
+                    //  Manual -> All -> Random -> Manual
+                    j = 0;
+                    if (IsAdminBitSet(AdminDanceSelectionAuto))
+                    {
+                        j = 1;
+                        if (IsAdminBitSet(AdminDanceSelectAutomaticRandom))
+                        {
+                            j = 2;
+                        }
+                    }
+                    ++j;
+                    if (j > 2)
+                    {
+                        j = 0;
+                    }
+                    if (CheckEqZero(j))
+                    {
+                        FlipAdminBit(AdminDanceSelectionAuto);    // From Random - we flip both selection (to manual) and to All (False)
+                        FlipAdminBit(AdminDanceSelectAutomaticRandom);
+                    }
+                    else
+                    {
+                        if (j == 1)
+                        {
+                            FlipAdminBit(AdminDanceSelectionAuto);    // From Manual - we flip selection (to manual) - to lead to All
+                        }
+                        else
+                        {
+                            FlipAdminBit(AdminDanceSelectAutomaticRandom);    // From All we flip random to Random                        
+                        }
+                    }
+                    MessageDCSetDurationFlag(IsAdminBitSet(AdminDanceSelectionAuto));
+                    MessageUISetDanceSelection(IsAdminBitSet(AdminDanceSelectAutomaticRandom));    // 0 == all(or next), 1 = random
+                    MessageGoToMenu(Define_ADMINLINKID);
+                    return;
+            }
+            if (cmd == AdminMenuDanceDuration)
+            {
+                // We do NOT handle the setting of the default dance duration - this is a chat command so that the user
+                //  can specify ANY duration - we just print the pretty message and duck.
+                MessageChatError("DCMSG023");
+                return;
+            }
+            if (cmd == AdminMenuCopyDances)
+            {
+                MessageGoToMenu(Define_LISTMENUSFORCOPYFROMLINKID);
+                return;
+            }
+            if (cmd == AdminMenuChangeHeight)
+            {
+                MessageGoToMenu(Define_LISTCHANGEHEIGHTLINKID);
+                return;
+            }
+            if (cmd == AdminMenuChangeWidth)
+            {
+                MessageGoToMenu(Define_LISTCHANGEWIDTHLINKID);
+                return;
+            }
+            if (cmd == AdminMenuClearMenu)
+            {
+                MessageGoToMenu(Define_LISTMENUSTOCLEARLINKID);
+                return;
+            }
+            if (cmd == AdminMenuTimeAnimations)
+            {
+                FlipAdminBit(AdminTimeAnimations);                
+                MessageShowDanceDurations(IsAdminBitSet(AdminTimeAnimations));            // Sent to all dancers with the hope that one of them is the owner
+                MessageGoToMenu(Define_ADMINLINKID);
+                return;
+            }
+            if (cmd == AdminMenuRecordFreestyleSequences)
+            {
+                FlipAdminBit(AdminRecordDances);
+                recordToLinkid = menuLinkid;        // Remember the menu we are recording sequences into (just for display)
+                MessageSetRecordingSequences(IsAdminBitSet(AdminRecordDances));    // Sends to UI to get the active user menu and that sends to the dancer control script to do it...
+                MessageGoToMenu(Define_ADMINLINKID);
+                return;
+            }
+            if (cmd == AdminMenuNoOp)
+            {
+                MessageGoToMenu(Define_ADMINLINKID);
+                return;            
+            }
+            if (cmd == AdminMenuTransfer)
+            {
+                MessageGoToMenu(Define_TRANSFERLINKID);
+                return;
+            }
+            if (cmd == AdminMenuReset)
+            {
+                MessageReset();
+                return;
+            }
+            if (cmd == AdminMenuSetTheme)
+            {
+                MessageGoToMenu(Define_INVENTORYTHEMELINKID);
+                return;
+            }
+            if (cmd == AdminMenuSetTransparency)
+            {
+                MessageGoToMenu(Define_INVENTORYTRANSPARENCYLINKID);
+                return;
+            }
+            if (cmd == AdminMenuSetWaitMenu)
+            {
+                MessageGoToMenu(Define_LISTMENUSFORWAITLINKID);
+                return;
+            }
+            if (cmd == AdminMenuSetUserMenu)
+            {
+                MessageGoToMenu(Define_LISTMENUSTOSELECTMENU);
+                return;
+            }
+            if (cmd == AdminMenuPreloadAnims)
+            {
+                MessageDCLoadAllAnims();
+                return;                    // Support routines will return us to a menu (could be admin, could be loading animations...)
+            }
+            if (cmd == AdminMenuReadMe)
+            {
+                llGiveInventory(llGetOwner(), ReadMeGettingStarted);
+                MessageGoToMenu(Define_ADMINLINKID);                
+                return;
+            }
+        }
+        else
+        {
+            OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
+        }
 
-		MessageReturnToUserMenu();		// Return back to a user menu of dance sequences...
-		return;
-	}
-	
-	if (List_SetDefaultDuration == cmd)
-	{
-		defaultDanceDuration = llList2Integer(tmpList,1);
-		MessageGoToMenu(Define_ADMINLINKID);
-		return;	
-	}
-	if (List_SetCurrentMenu == cmd)
-	{
-		menuLinkid = llList2Integer(tmpList,1);
-		return;
-	}
+        MessageReturnToUserMenu();        // Return back to a user menu of dance sequences...
+        return;
+    }
+    
+    if (List_SetDefaultDuration == cmd)
+    {
+        defaultDanceDuration = llList2Integer(tmpList,1);
+        MessageGoToMenu(Define_ADMINLINKID);
+        return;    
+    }
+    if (List_SetCurrentMenu == cmd)
+    {
+        menuLinkid = llList2Integer(tmpList,1);
+        return;
+    }
 }
 
 
@@ -327,126 +362,139 @@ HandleAdminMenu()
 //
 SendOneAnimationItemSequence(string name, integer linkid, integer fromLinkId)
 {
-	string s;
+    string s;
 
-	// Send a completely prepared sequence back...
-	s = llDumpList2String([llDumpList2String([keywordDance, name, Define_GroupAllBits, Define_DanceStart, 0],"|"),
-						    llDumpList2String([keywordDelay, Define_DefaultDanceDuration], "|"),
-						    keywordRepeat ], "|||");
- 	MessageSendSequence(linkid, name, s, fromLinkId);
+    // Send a completely prepared sequence back...
+    s = (string)keywordDance + "|" + name + "|" + (string)Define_GroupAllBits + "|" +
+            (string)Define_DanceStart + "|"+ (string)0 + "|||" +
+        (string)keywordDelay + "|" + (string) Define_DefaultDanceDuration + "|||" +
+        (string)keywordRepeat + "|||";
+     MessageSendSequence(linkid, name, s, fromLinkId);
 }
 
 #define INVENTORY_ANIMATION_MENU_NAME "Inventory animations"
 HandleInventoryAnimations(string randomParams)
 {
-	integer cmd = llList2Integer(tmpList,0);
-	integer length = llGetInventoryNumber(INVENTORY_ANIMATION);
-	integer selected = -1;
+    integer cmd = llList2Integer(tmpList,0);
+    integer length = llGetInventoryNumber(INVENTORY_ANIMATION);
+    integer selected = -1;
 
-	if (cmd == MenuLite_GetMenuRange)
-	{
-		integer startIndex = llList2Integer(tmpList,1);
-		integer linkid = llList2Integer(tmpList, 2);
-		integer number = llList2Integer(tmpList,3);
+    if (cmd == MenuLite_GetMenuRange)
+    {
+        integer startIndex = llList2Integer(tmpList,1);
+        integer linkid = llList2Integer(tmpList, 2);
+        integer number = llList2Integer(tmpList,3);
 
-		if ((startIndex > length) || (startIndex < 0))
-			MessageSendMenuRange(linkid, INVENTORY_ANIMATION_MENU_NAME, length, 0, Define_FlagRangeUnconstrainedMenu, Define_INVENTORYANIMLINKID, "");
-		else
-		{
-			// Check the upper range and adjust downward if required
-			if ((startIndex+number) > length)
-				number = (length-startIndex);
+        if ((startIndex > length) || (startIndex < 0))
+        {
+            MessageSendMenuRange(linkid, INVENTORY_ANIMATION_MENU_NAME, length, 0, Define_FlagRangeUnconstrainedMenu, Define_INVENTORYANIMLINKID, "");
+        }
+        else
+        {
+            // Check the upper range and adjust downward if required
+            if ((startIndex+number) > length)
+            {
+                number = (length-startIndex);
+            }
 
-			// We know that the admin menu fits - it does NOT need all 30 slots in the GUI - so don't range check it... always return the whole thing
-			tmpList = [];
-			for (i=0; i < number; ++i)
-			{
-				tmpStr = llDumpList2String(["#"+(string)(i+startIndex+1)+" "+llGetInventoryName(INVENTORY_ANIMATION, startIndex+i),Define_INVENTORYANIMLINKID,startIndex+i],"|");
-				tmpList = AppendStringToList(tmpList, tmpStr);
-			}
-			
-			tmpStr = llDumpList2String(tmpList, "|||");
-			MessageSendMenuRange(linkid, INVENTORY_ANIMATION_MENU_NAME, length, startIndex, Define_FlagRangeUnconstrainedMenu, Define_INVENTORYANIMLINKID, tmpStr);
-			tmpList = [];
-			tmpStr = "";
-		}
-		return;
-	}
+            // We know that the admin menu fits - it does NOT need all 30 slots in the GUI - so don't range check it... always return the whole thing
+            tmpList = [];
+            for (i=0; i < number; ++i)
+            {
+                tmpStr = "#"+(string)(i+startIndex+1)+" "+llGetInventoryName(INVENTORY_ANIMATION, startIndex+i) + "|" + (string)Define_INVENTORYANIMLINKID + "|" + (string)(startIndex+i);
+                AppendStringToList(tmpList, tmpStr);
+            }
+            
+            tmpStr = llDumpList2String(tmpList, "|||");
+            MessageSendMenuRange(linkid, INVENTORY_ANIMATION_MENU_NAME, length, startIndex, Define_FlagRangeUnconstrainedMenu, Define_INVENTORYANIMLINKID, tmpStr);
+            tmpList = [];
+            tmpStr = "";
+        }
+        return;
+    }
 
-	if (cmd == MenuLite_Select)
-	{
-		// The menu returned to the user was: (inventory animation 0)(inventory anim 1)... (till end of menu)
-		selected = llList2Integer(tmpList,1);	// Get the selected item from the list...
-		if ((selected >= 0) && (selected < length))
-		{
-			SendOneAnimationItemSequence(llGetInventoryName(INVENTORY_ANIMATION, selected), Define_DANCECONTROLLINKID, Define_INVENTORYANIMLINKID);
-			return;
-		}
-		OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
-		MessageGoToMenu(Define_INVENTORYANIMLINKID);		// Return back to a list of inventory animations when we can't find what they wanted
-		return;
-	}
+    if (cmd == MenuLite_Select)
+    {
+        // The menu returned to the user was: (inventory animation 0)(inventory anim 1)... (till end of menu)
+        selected = llList2Integer(tmpList,1);    // Get the selected item from the list...
+        if ((selected >= 0) & (selected < length))
+        {
+            SendOneAnimationItemSequence(llGetInventoryName(INVENTORY_ANIMATION, selected), Define_DANCECONTROLLINKID, Define_INVENTORYANIMLINKID);
+            return;
+        }
+        OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
+        MessageGoToMenu(Define_INVENTORYANIMLINKID);        // Return back to a list of inventory animations when we can't find what they wanted
+        return;
+    }
 
-	if (cmd == List_SelectString)
-	{
-		// Ok - the user typed something that isn't on the menu and this is an unconstrained menu so we get to look it up
-		// There are two options '#32' and 'something else' - look for the typed number first - if we fail to find it as a number
-		// then we try to look it up as a string - so long as the second character is not a [0-9].
-		tmpStr = llDumpList2String(llDeleteSubList(tmpList,0,0),"|");	// Get the original string back from the list minus the command used to start us
+    if (cmd == List_SelectString)
+    {
+        // Ok - the user typed something that isn't on the menu and this is an unconstrained menu so we get to look it up
+        // There are two options '#32' and 'something else' - look for the typed number first - if we fail to find it as a number
+        // then we try to look it up as a string - so long as the second character is not a [0-9].
+        tmpStr = llDumpList2String(llDeleteSubList(tmpList,0,0),"|");    // Get the original string back from the list minus the command used to start us
 
-		if (llGetSubString(tmpStr,0,0) == "#")
-		{
-			// Try to believe that this is a number - skip any whitespace after '#' - for '#   32'
-			string s;
-			s = llStringTrim(llGetSubString(tmpStr,1,-1),STRING_TRIM);
-			if (-1 != llListFindList(["0","1","2","3","4","5","6","7","8","9"], [llGetSubString(s,0,0)]))
-			{
-				// Feels like a number to us - so convert it - fall through for range check
-				//  Menus start at 1, we start at 0 - so substract one off to get the correct # from the user
-				selected = ((integer)s)-1;
-			}
-		}
-		if (selected == -1)
-		{
-			// Ok - we did NOT find that this was a number - so look it up by name in the inventory
-			if (INVENTORY_ANIMATION == llGetInventoryType(tmpStr))
-			{
-				// Yeps - it's an animation and exists - get it's number - we can't just have a simple 'lookup this name please'
-				// so we have to loop through the animations to find it (sigh)
-				for (cmd = 0; (cmd < length) && (selected == -1); cmd++)
-				{
-					if (llGetInventoryName(INVENTORY_ANIMATION, cmd) == tmpStr)	// FIXME? - should we be case insensitive here? I'm not sure... maybe...
-						selected = cmd;
-				}
-			}
-		}
-		if ((selected >= 0) && (selected < length))
-		{
-			SendOneAnimationItemSequence(llGetInventoryName(INVENTORY_ANIMATION, selected), Define_DANCECONTROLLINKID, Define_INVENTORYANIMLINKID);
-			return;
-		}
-		OwnerSay("DCMSG007", [tmpStr]);
-		MessageGoToMenu(Define_INVENTORYANIMLINKID);		// Return back to a list of inventory animations when we can't find what they wanted
-	}
+        if (llGetSubString(tmpStr,0,0) == "#")
+        {
+            // Try to believe that this is a number - skip any whitespace after '#' - for '#   32'
+            string s;
+            s = llStringTrim(llGetSubString(tmpStr,1,-1),STRING_TRIM);
+            if (CheckNeqMinusOne(llListFindList(["0","1","2","3","4","5","6","7","8","9"], [llGetSubString(s,0,0)])))
+            {
+                // Feels like a number to us - so convert it - fall through for range check
+                //  Menus start at 1, we start at 0 - so substract one off to get the correct # from the user
+                selected = ((integer)s)-1;
+            }
+        }
+        if (CheckEqMinusOne(selected))
+        {
+            // Ok - we did NOT find that this was a number - so look it up by name in the inventory
+            if (INVENTORY_ANIMATION == llGetInventoryType(tmpStr))
+            {
+                // Yeps - it's an animation and exists - get it's number - we can't just have a simple 'lookup this name please'
+                // so we have to loop through the animations to find it (sigh)
+                for (cmd = 0; (cmd < length) && CheckEqMinusOne(selected); ++cmd)
+                {
+                    if (llGetInventoryName(INVENTORY_ANIMATION, cmd) == tmpStr)
+                    {
+                        selected = cmd;
+                    }
+                }
+            }
+        }
+        if ((selected >= 0) & (selected < length))
+        {
+            SendOneAnimationItemSequence(llGetInventoryName(INVENTORY_ANIMATION, selected), Define_DANCECONTROLLINKID, Define_INVENTORYANIMLINKID);
+            return;
+        }
+        OwnerSay("DCMSG007", [tmpStr]);
+        MessageGoToMenu(Define_INVENTORYANIMLINKID);        // Return back to a list of inventory animations when we can't find what they wanted
+    }
 
-	// Two modes for next sequence - either advance (and rotate mode) OR random mode - both
-	//  need to retry when there is no sequence there... we do not know the last selection yet...
-	if (cmd == List_NextSequence)
-	{
-		tmpList = llParseString2List(randomParams,["|"],[]);
-		selected = llList2Integer(tmpList,1);
+    // Two modes for next sequence - either advance (and rotate mode) OR random mode - both
+    //  need to retry when there is no sequence there... we do not know the last selection yet...
+    if (cmd == List_NextSequence)
+    {
+        tmpList = llParseString2List(randomParams,["|"],[]);
+        selected = llList2Integer(tmpList,1);
 
-		if (llList2Integer(tmpList,0))
-			selected = (integer) llFrand(length);
-		else
-			selected++;
+        if (llList2Integer(tmpList,0))
+        {
+            selected = (integer) llFrand(length);
+        }
+        else
+        {
+            ++selected;
+        }
 
-		if (selected >= length)
-			selected = 0;
+        if (selected >= length)
+        {
+            selected = 0;
+        }
 
-		SendOneAnimationItemSequence(llGetInventoryName(INVENTORY_ANIMATION, selected), Define_DANCECONTROLLINKID, Define_INVENTORYANIMLINKID);
-		return;
-	}
+        SendOneAnimationItemSequence(llGetInventoryName(INVENTORY_ANIMATION, selected), Define_DANCECONTROLLINKID, Define_INVENTORYANIMLINKID);
+        return;
+    }
 
 }
 
@@ -459,131 +507,148 @@ HandleInventoryAnimations(string randomParams)
 
 LoadNotecard(string notecard)
 {
-	if (llGetSubString(notecard,0,2) == "~FS")
-	{
-		OwnerSay("NCMSG033", [notecard]);
-		return;
-	}
+    if (llGetSubString(notecard,0,2) == "~FS")
+    {
+        OwnerSay("NCMSG033", [notecard]);
+        return;
+    }
 
-	if ("~" == llGetSubString(notecard,0,0))
-	{
- 		MessageLoadAONotecard(notecard);
-		MessageGoToMenu(Define_AOMENULINKID);
-		return; 		
- 	}
+    if ("~" == llGetSubString(notecard,0,0))
+    {
+        MessageLoadAONotecard(notecard);
 
-	MessageStartNotecardLoad(notecard);	// Send a message to the UI which knows the current user menu which is where we send the sequences...
-	MessageGoToMenu(Define_ADMINLINKID);		// Return back to the admin menu from list of notecards...
+        if (adminMenuActive == TRUE)
+        {
+            MessageGoToMenu(Define_ADMINLINKID);
+        }
+        else
+        {
+            MessageGoToMenu(Define_AOMENULINKID);
+        }
+        return;
+     }
+
+    MessageStartNotecardLoad(notecard);    // Send a message to the UI which knows the current user menu which is where we send the sequences...
+    MessageGoToMenu(Define_ADMINLINKID);        // Return back to the admin menu from list of notecards...
 }
 
 #define INVENTORY_NOTECARD_MENU_NAME "Load which notecard?"
 HandleInventoryNotecards()
 {
-	integer cmd = llList2Integer(tmpList,0);
-	integer length = llGetInventoryNumber(INVENTORY_NOTECARD);
-	integer selected = -1;
+    integer cmd = llList2Integer(tmpList,0);
+    integer length = llGetInventoryNumber(INVENTORY_NOTECARD);
+    integer selected = -1;
 
-	if (cmd == MenuLite_GetMenuRange)
-	{
-		integer startIndex = llList2Integer(tmpList,1);
-		integer linkid = llList2Integer(tmpList, 2);
-		integer number = llList2Integer(tmpList,3);
+    if (cmd == MenuLite_GetMenuRange)
+    {
+        integer startIndex = llList2Integer(tmpList,1);
+        integer linkid = llList2Integer(tmpList, 2);
+        integer number = llList2Integer(tmpList,3);
 
-		if ((startIndex > length) || (startIndex < 0))
-			MessageSendMenuRange(linkid, INVENTORY_NOTECARD_MENU_NAME, length+1, 0, Define_FlagRangeConstrainedMenu, Define_LISTNOTECARDLINKID, "");
-		else
-		{
-			// Check the upper range and adjust downward if required
-			if ((startIndex+number) > length+1)	// (back)+notecards
-				number = (length-startIndex)+1;
+        if ((startIndex > length) || (startIndex < 0))
+        {
+            MessageSendMenuRange(linkid, INVENTORY_NOTECARD_MENU_NAME, length+1, 0, Define_FlagRangeConstrainedMenu, Define_LISTNOTECARDLINKID, "");
+        }
+        else
+        {
+            // Check the upper range and adjust downward if required
+            if ((startIndex+number) > length+1)    // (back)+notecards
+            {
+                number = (length-startIndex)+1;
+            }
 
-			// We expect that there is at least one notecard - and add a back button first...
-			//  We filter nothing out - because the order does matter...
-			tmpList = [ llDumpList2String(["#"+(string)(startIndex+1)+" Back",Define_LISTNOTECARDLINKID,0],"|") ];	// First menu entry is 'Back'
-			for (i=0; i < number-1; ++i)
-			{
-				tmpStr = llDumpList2String(["#"+(string)(i+startIndex+2)+" "+llGetInventoryName(INVENTORY_NOTECARD, startIndex+i),Define_LISTNOTECARDLINKID,startIndex+i+1],"|");
-				tmpList = AppendStringToList(tmpList, tmpStr);
-			}
-			
-			tmpStr = llDumpList2String(tmpList, "|||");
-			MessageSendMenuRange(linkid, INVENTORY_NOTECARD_MENU_NAME, length+1, startIndex, Define_FlagRangeConstrainedMenu, Define_LISTNOTECARDLINKID, tmpStr);
-			tmpList = [];
-			tmpStr = "";
-		}
-		return;
-	}
+            // We expect that there is at least one notecard - and add a back button first...
+            //  We filter nothing out - because the order does matter...
+            tmpList = [ "#"+(string)(startIndex+1)+" Back" + "|" + (string)Define_LISTNOTECARDLINKID + "|" + (string)0 ];    // First menu entry is 'Back'
+            for (i=0; i < number-1; ++i)
+            {
+                tmpStr = "#"+(string)(i+startIndex+2)+" "+llGetInventoryName(INVENTORY_NOTECARD, startIndex+i) + "|" + (string)Define_LISTNOTECARDLINKID + "|" + (string)(startIndex+i+1);
+                AppendStringToList(tmpList, tmpStr);
+            }
+            
+            tmpStr = llDumpList2String(tmpList, "|||");
+            MessageSendMenuRange(linkid, INVENTORY_NOTECARD_MENU_NAME, length+1, startIndex, Define_FlagRangeConstrainedMenu, Define_LISTNOTECARDLINKID, tmpStr);
+            tmpList = [];
+            tmpStr = "";
+        }
+        return;
+    }
 
-	if (cmd == MenuLite_Select)
-	{
-		// The menu returned to the user was: (back)(notecard 0)(notecard 1)... (till end of menu)
-		// Feels like it is possible for the user to get to ~FSErrors
-		selected = llList2Integer(tmpList,1);	// Get the selected item from the list...
-		if ((selected >= 0) && (selected < length+1))	// Remember - back + others
-		{
-			// Back menu is # 0 - so only load for selected-1 :-)
-			if (selected > 0)
-			{
-				LoadNotecard(llGetInventoryName(INVENTORY_NOTECARD, selected-1));
-				return;
-					// Load Notecard took us to either the admin menu (dance notecard) or the AO menu (AO notecard)
-			}
-		}
-		else
-			OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
+    if (cmd == MenuLite_Select)
+    {
+        // The menu returned to the user was: (back)(notecard 0)(notecard 1)... (till end of menu)
+        // Feels like it is possible for the user to get to ~FSErrors
+        selected = llList2Integer(tmpList,1);    // Get the selected item from the list...
+        if ((selected >= 0) & (selected < length+1))    // Remember - back + others
+        {
+            // Back menu is # 0 - so only load for selected-1 :-)
+            if (selected > 0)
+            {
+                LoadNotecard(llGetInventoryName(INVENTORY_NOTECARD, selected-1));
+                return;
+                    // Load Notecard took us to either the admin menu (dance notecard) or the AO menu (AO notecard)
+            }
+        }
+        else
+        {
+            OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
+        }
 
-		MessageGoToMenu(Define_ADMINLINKID);		// Return back to the admin menu from list of notecards...
-		return;
-	}
+        MessageGoToMenu(Define_ADMINLINKID);        // Return back to the admin menu from list of notecards...
+        return;
+    }
 
-	if (cmd == List_SelectString)
-	{
-		// Ok - the user typed something that isn't on the menu and this is an unconstrained menu so we get to look it up
-		// There are two options '#32' and 'something else' - look for the typed number first - if we fail to find it as a number
-		// then we try to look it up as a string - so long as the second character is not a [0-9].
-		tmpStr = llStringTrim(llDumpList2String(llDeleteSubList(tmpList,0,0),"|"),STRING_TRIM);	// Get the original string back from the list minus the command used to start us
-		if (llToUpper(tmpStr) == "BACK")
-		{
-			MessageGoToMenu(Define_ADMINLINKID);		// Return back to the admin menu
-			return;
-		}
+    if (cmd == List_SelectString)
+    {
+        // Ok - the user typed something that isn't on the menu and this is an unconstrained menu so we get to look it up
+        // There are two options '#32' and 'something else' - look for the typed number first - if we fail to find it as a number
+        // then we try to look it up as a string - so long as the second character is not a [0-9].
+        tmpStr = llStringTrim(llDumpList2String(llDeleteSubList(tmpList,0,0),"|"),STRING_TRIM);    // Get the original string back from the list minus the command used to start us
+        if (llToUpper(tmpStr) == "BACK")
+        {
+            MessageGoToMenu(Define_ADMINLINKID);        // Return back to the admin menu
+            return;
+        }
 
-		if (llGetSubString(tmpStr,0,0) == "#")
-		{
-			// Try to believe that this is a number - skip any whitespace after '#' - for '#   32'
-			string s;
-			s = llStringTrim(llGetSubString(tmpStr,1,-1),STRING_TRIM);
-			if (-1 != llListFindList(["0","1","2","3","4","5","6","7","8","9"], [llGetSubString(s,0,0)]))
-			{
-				// Feels like a number to us - so convert it - fall through for range check
-				selected = (integer)s;
-			}
-		}
-		if (selected == -1)
-		{
-			// Ok - we did NOT find that this was a number - so look it up by name in the inventory
-			if (INVENTORY_NOTECARD == llGetInventoryType(tmpStr))
-			{
-				// Yeps - it's an animation and exists - get it's number - we can't just have a simple 'lookup this name please'
-				// so we have to loop through the animations to find it (sigh)
-				for (cmd = 0; (cmd < length) && (selected == -1); cmd++)
-				{
-					if (llGetInventoryName(INVENTORY_NOTECARD, cmd) == tmpStr)	// FIXME? - should we be case insensitive here? I'm not sure... maybe...
-						selected = cmd;
-				}
-			}
-		}
-		if ((selected >= 0) && (selected < length))
-		{
-			LoadNotecard(llGetInventoryName(INVENTORY_NOTECARD, selected));
-			return;
-		}
-		else
-			OwnerSay("DCMSG007", [tmpStr]);
-		MessageGoToMenu(Define_ADMINLINKID);		// Return back to the admin menu when we can't load
-	}
+        if (llGetSubString(tmpStr,0,0) == "#")
+        {
+            // Try to believe that this is a number - skip any whitespace after '#' - for '#   32'
+            string s;
+            s = llStringTrim(llGetSubString(tmpStr,1,-1),STRING_TRIM);
+            if (CheckNeqMinusOne(llListFindList(["0","1","2","3","4","5","6","7","8","9"], [llGetSubString(s,0,0)])))
+            {
+                // Feels like a number to us - so convert it - fall through for range check
+                selected = (integer)s;
+            }
+        }
+        if (CheckEqMinusOne(selected))
+        {
+            // Ok - we did NOT find that this was a number - so look it up by name in the inventory
+            if (INVENTORY_NOTECARD == llGetInventoryType(tmpStr))
+            {
+                // Yeps - it's an animation and exists - get it's number - we can't just have a simple 'lookup this name please'
+                // so we have to loop through the animations to find it (sigh)
+                for (cmd = 0; (cmd < length) && CheckEqMinusOne(selected); ++cmd)
+                {
+                    if (llGetInventoryName(INVENTORY_NOTECARD, cmd) == tmpStr)
+                    {
+                        selected = cmd;
+                    }
+                }
+            }
+        }
+        if ((selected >= 0) & (selected < length))
+        {
+            LoadNotecard(llGetInventoryName(INVENTORY_NOTECARD, selected));
+            return;
+        }
+        else
+        {
+            OwnerSay("DCMSG007", [tmpStr]);
+        }
+        MessageGoToMenu(Define_ADMINLINKID);        // Return back to the admin menu when we can't load
+    }
 }
-
 
 
 //
@@ -592,187 +657,625 @@ HandleInventoryNotecards()
 #define AO_MENU_NAME "Animation Override Menu"
 HandleAOMenu()
 {
-	integer cmd = llList2Integer(tmpList,0);
-	integer length = llGetListLength(aoMenuCmds);
-	string s;
+    integer cmd = llList2Integer(tmpList,0);
+    integer length = llGetListLength(aoMenuCmds);
+    string s;
 
-	if (MenuLite_GetMenuRange == cmd)
-	{
-		integer startIndex = llList2Integer(tmpList,1);
-		integer linkid = llList2Integer(tmpList, 2);
-		integer number = llList2Integer(tmpList,3);
+    adminMenuActive = FALSE;
 
-		if ((startIndex >= length) || (startIndex < 0))
-			MessageSendMenuRange(linkid, AO_MENU_NAME, length, 0, Define_FlagRangeConstrainedMenu, Define_AOMENULINKID, "");
-		else
-		{
-			// Check the upper range and adjust downward if required
-			if ((startIndex+number) > length)
-				number = (length-startIndex);
+    if (MenuLite_GetMenuRange == cmd)
+    {
+        integer startIndex = llList2Integer(tmpList,1);
+        integer linkid = llList2Integer(tmpList, 2);
+        integer number = llList2Integer(tmpList,3);
 
-			// We know that the AO menu fits
-			tmpList = [];
-			for (i=0; i < number; ++i)
-			{
-				s = llList2String(aoMenuNames, i+startIndex);
-				cmd = llList2Integer(aoMenuCmds,(startIndex+i));
-				if (cmd == AOMenuAOName)
-					s += aoName;
-				if (cmd == AOMenuStandSequence)
-					s += llList2String(["Sequential","Random"],IsAdminBitSet(AORandomStands));
-				if (cmd == AOMenuSit)
-					s += llList2String(["Off","On"],IsAdminBitSet(AOSitFlag));
-				if (cmd == AOMenuSitAnywhere)
-					s += llList2String(["Off","On"],IsAdminBitSet(AOSitAnywhereFlag));
-				if (cmd == AOMenuStand)
-					s += llList2String(["Off","On"],IsAdminBitSet(AOStandFlag));
-				tmpStr = llDumpList2String(["#"+(string)(i+startIndex+1)+" "+s,Define_AOMENULINKID,cmd],"|");
-				tmpList = AppendStringToList(tmpList, tmpStr);
-			}
-			
-			tmpStr = llDumpList2String(tmpList, "|||");
-			MessageSendMenuRange(linkid, AO_MENU_NAME, length, startIndex, Define_FlagRangeConstrainedMenu, Define_AOMENULINKID, tmpStr);
-			tmpList = [];
-			tmpStr = "";
-			return;
-		}
-	}
+        if ((startIndex >= length) || (startIndex < 0))
+        {
+            MessageSendMenuRange(linkid, AO_MENU_NAME, length, 0, Define_FlagRangeConstrainedMenu, Define_AOMENULINKID, "");
+        }
+        else
+        {
+            // Check the upper range and adjust downward if required
+            if ((startIndex+number) > length)
+            {
+                number = (length-startIndex);
+            }
 
-	if (MenuLite_Select == cmd)
-	{
-		// The menu returned to the user was: AOmenu(0),AOmenu(1)...
-		cmd = llList2Integer(tmpList,1);	// Get the selected item from the list...
-		if ((cmd >= AOMenuNextStand) && (cmd <= AOMenuMaxValue))
-		{
-			if (cmd == AOMenuNextStand)
-				MessageAONextStand();
-			if (cmd == AOMenuStandSequence)
-			{
-				FlipAdminBit(AORandomStands);
-				if (IsAdminBitSet(AORandomStands))
-					MessageAORandomStands();
-				else
-					 MessageAOSequentialStands();
-			}
-			if (cmd == AOMenuSit)
-			{
-				FlipAdminBit(AOSitFlag);
-				if (IsAdminBitSet(AOSitFlag))
-					MessageAOSitOn();
-				else
-					 MessageAOSitOff();
-			}
-			if (cmd == AOMenuSitAnywhere)
-			{
-				FlipAdminBit(AOMenuSitAnywhere);
-				if (IsAdminBitSet(AOSitAnywhereFlag))
-					MessageAOSitAnywhereOn();
-				else
-					MessageAOSitAnywhereOff();
-			}
-			if (cmd == AOMenuStand)
-			{
-				FlipAdminBit(AOStandFlag);
-				if (IsAdminBitSet(AOStandFlag))
-					MessageAOStandOn();
-				else
-					MessageAOStandOff();
-			}
-			if (cmd == AOMenuLoadNotecard)
-			{
-				MessageGoToMenu(Define_LISTNOTECARDLINKID);
-				return;
-			}
-			if (cmd == AOMenuSelectSit)
-			{
-				MessageAOSelectSit();
-				return;
-			}
-			if (cmd == AOMenuSelectWalk)
-			{
-				MessageAOSelectWalk();
-				return;
-			}
-			if (cmd == AOMenuSelectGroundSit)
-			{
-				MessageAOSelectGroundSit();
-				return;
-			}
-		}
-		else
-			OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
+            // We know that the AO menu fits
+            tmpList = [];
+            for (i=0; i < number; ++i)
+            {
+                s = llList2String(aoMenuNames, i+startIndex);
+                cmd = llList2Integer(aoMenuCmds,(startIndex+i));
+                if (cmd == AOMenuAOName)
+                {
+                    s += aoName;
+                }
+                if (cmd == AOMenuStandSequence)
+                {
+                    s += llList2String(["Sequential","Random"],IsAdminBitSet(AORandomStands));
+                }
+                if (cmd == AOMenuSit)
+                {
+                    s += llList2String(["Off","On"],IsAdminBitSet(AOSitFlag));
+                }
+                if (cmd == AOMenuSitAnywhere)
+                {
+                    s += llList2String(["Off","On"],IsAdminBitSet(AOSitAnywhereFlag));
+                }
+                if (cmd == AOMenuStand)
+                {
+                    s += llList2String(["Off","On"],IsAdminBitSet(AOStandFlag));
+                }
+                tmpStr = "#"+(string)(i+startIndex+1)+" "+s+ "|" + (string)Define_AOMENULINKID + "|" + (string)cmd;
+                AppendStringToList(tmpList, tmpStr);
+            }
+            
+            tmpStr = llDumpList2String(tmpList, "|||");
+            MessageSendMenuRange(linkid, AO_MENU_NAME, length, startIndex, Define_FlagRangeConstrainedMenu, Define_AOMENULINKID, tmpStr);
+            tmpList = [];
+            tmpStr = "";
+            return;
+        }
+    }
 
-		MessageGoToMenu(Define_AOMENULINKID);
-		return;
-	}
+    if (MenuLite_Select == cmd)
+    {
+        // The menu returned to the user was: AOmenu(0),AOmenu(1)...
+        cmd = llList2Integer(tmpList,1);    // Get the selected item from the list...
+        if ((cmd >= AOMenuNextStand) & (cmd <= AOMenuMaxValue))
+        {
+            if (cmd == AOMenuNextStand)
+            {
+                MessageAONextStand();
+            }
+            if (cmd == AOMenuStandSequence)
+            {
+                FlipAdminBit(AORandomStands);
+                if (IsAdminBitSet(AORandomStands))
+                {
+                    MessageAORandomStands();
+                }
+                else
+                {
+                     MessageAOSequentialStands();
+                }
+            }
+            if (cmd == AOMenuSit)
+            {
+                FlipAdminBit(AOSitFlag);
+                if (IsAdminBitSet(AOSitFlag))
+                {
+                    MessageAOSitOn();
+                }
+                else
+                {
+                     MessageAOSitOff();
+                }
+            }
+            if (cmd == AOMenuSitAnywhere)
+            {
+                FlipAdminBit(AOMenuSitAnywhere);
+                if (IsAdminBitSet(AOSitAnywhereFlag))
+                {
+                    MessageAOSitAnywhereOn();
+                }
+                else
+                {
+                    MessageAOSitAnywhereOff();
+                }
+            }
+            if (cmd == AOMenuStand)
+            {
+                FlipAdminBit(AOStandFlag);
+                if (IsAdminBitSet(AOStandFlag))
+                {
+                    MessageAOStandOn();
+                }
+                else
+                {
+                    MessageAOStandOff();
+                }
+            }
+            if (cmd == AOMenuLoadNotecard)
+            {
+                MessageGoToMenu(Define_LISTNOTECARDLINKID);
+                return;
+            }
+            if (cmd == AOMenuSelectSit)
+            {
+                MessageAOSelectSit();
+                return;
+            }
+            if (cmd == AOMenuSelectWalk)
+            {
+                MessageAOSelectWalk();
+                return;
+            }
+            if (cmd == AOMenuSelectGroundSit)
+            {
+                MessageAOSelectGroundSit();
+                return;
+            }
+        }
+        else
+        {
+            OwnerSay("DCMSG007", [llList2String(tmpList,1)]);
+        }
 
-	if (List_LoadedAO == cmd)
-	{
-		aoName = llList2String(tmpList,1);
-		MessageGoToMenu(Define_AOMENULINKID);		
-	}
+        MessageGoToMenu(Define_AOMENULINKID);
+        return;
+    }
+
+    if (List_LoadedAO == cmd)
+    {
+        aoName = llList2String(tmpList,1);
+    }
+}
+
+//
+// Reset vertical HUD menu aspect of things
+//  It's just a mini menu like the other admin menus
+//
+#define VERTICAL_CHANGE_MENU_NAME "Set HUD vertical size"
+
+HandleHUDVerticalSize()
+{
+    integer cmd = llList2Integer(tmpList,0);
+    integer length = llGetListLength(clickerHeightCmds);
+    string s;
+    vector primSize;
+    vector primPos;
+    integer primChangePosition = 0;    // Where was the 'MenuItem:1' prim? (local vertical offset from root prim)
+    integer primChangeSize = 0;        // What's the new prim size?
+    integer defaultMenuItem = -1;
+
+    if (cmd == MenuLite_GetMenuRange)
+    {
+        integer startIndex = llList2Integer(tmpList,1);
+        integer linkid = llList2Integer(tmpList, 2);
+        integer number = llList2Integer(tmpList,3);
+
+        // Check the upper range and adjust downward if required
+        if ((startIndex+number) > length)
+        {
+            number = (length-startIndex);
+        }
+
+        // What is the default height size on the menu? Well... we need to get the current height and
+        //  try to find it in the list of sizes. We'll round up and make it an integer so that we can
+        //  not have to worry about floating point messiness - worse is that we have to go find the
+        //  prim to look at - we'll go looking for the bottom most prim
+        primSize = llList2Vector(llGetLinkPrimitiveParams(LINK_ROOT, [ PRIM_SIZE ]), 0);
+        for (i = 1; (i < length) && CheckEqZero(primChangeSize); ++i)
+        {
+            s = llGetLinkName((length-i)+1);
+            if ("None,HScroll" == s)
+            {
+                primSize = llList2Vector(llGetLinkPrimitiveParams((length-i)+1, [ PRIM_SIZE ]), 0);
+                primChangeSize = llRound(primSize.z * 10000.0);
+            }
+        }
+        
+        // We know that the clicker training menu fits
+        tmpList = [];
+        for (i=0; i < number; ++i)
+        {
+            s = llList2String(clickerHeightMenu, i+startIndex);
+            cmd = llList2Integer(clickerHeightCmds,(startIndex+i));
+            tmpStr = "#"+(string)(i+startIndex+1)+" "+s + "|" + (string)Define_LISTCHANGEHEIGHTLINKID + "|" + (string)cmd;
+            AppendStringToList(tmpList, tmpStr);
+            if ((i >= ClickerMenuHeight1) &
+                (llList2Integer(hudHeightSettings, i-ClickerMenuWidth1) == primChangeSize))
+            {
+                defaultMenuItem = i; 
+            }
+        }
+        
+        tmpStr = llDumpList2String(tmpList, "|||");
+        MessageSendMenuRangeSelected(linkid, VERTICAL_CHANGE_MENU_NAME, length, startIndex, Define_FlagRangeConstrainedMenu, Define_LISTCHANGEHEIGHTLINKID, tmpStr, defaultMenuItem);
+        tmpList = [];
+        tmpStr = "";
+        return;
+    }
+
+    if (cmd == MenuLite_Select)
+    {
+        // The menu returned to the user was: Back, Height(0),Height(1)...
+        cmd = llList2Integer(tmpList,1);    // Get the selected item from the list...
+        if ((cmd >= ClickerMenuHeight1) & (cmd <= ClickerMenuHeight8))
+        {
+            length = llGetNumberOfPrims();
+
+#ifdef BUILD_FOR_SL
+            // Find the first 'MenuItem' prim - the prims after that all get resized and repositioned
+            // The idea is that we know that it is the prim under the menu selection (1-10,I,A) and we
+            // want to move this prim and all the rest. We get it's current position and size and from
+            // that we can calculate a starting position for it and all the others. We do this by
+            // calculating where this prim should go (position - height/2 + newPrimHeight/2) and then
+            // we can set the size to newPrimHeight.
+            for (i = 1; (i < length) && CheckEqZero(primChangePosition); ++i)
+            {
+                s = llGetLinkName((length-i)+1);
+                if ("MenuItem:1" == s)
+                {
+                    tmpList = llGetLinkPrimitiveParams((length-i)+1, [ PRIM_SIZE, PRIM_POSITION ]);
+                    primSize = llList2Vector(tmpList, 0);
+                    primPos = llList2Vector(tmpList, 1) - llGetRootPosition();
+                    primChangePosition = llRound(primPos.z * 10000.0) - ( llRound(primSize.z * 10000.0) / 2);    // Z is down for more prims... so subtract
+                }
+            }
+
+            // Get the new prim size. Take the position and subtract half the height - for the middle of the prim
+            primChangeSize = llList2Integer(hudHeightSettings, cmd-ClickerMenuHeight1);
+            primChangePosition -= primChangeSize / 2;
+
+            // Loop through our prims (skip the root as we will NOT move it)
+            //
+            // We start where we left off - at the first menu item and adjust from there to the end (going backwards down the prims)
+            while (i < length)
+            {
+                // We should look - just in case - move MenuItem, MenuText and the last 'None,HScroll' prim - all of them change size and move...
+                s = llGetLinkName((length-i)+1);
+                if ((CheckNeqMinusOne(llSubStringIndex(s, "MenuItem"))) || (CheckNeqMinusOne(llSubStringIndex(s, "MenuText"))) || (s == "None,HScroll"))
+                {
+                    tmpList = llGetLinkPrimitiveParams((length-i)+1, [ PRIM_SIZE, PRIM_POSITION ]);
+                    primSize = llList2Vector(tmpList, 0);
+                    primSize.z = ((float) primChangeSize) / 10000.0;
+                    primPos = llList2Vector(tmpList,1) - llGetRootPosition();    // Returned region coordinates, make them local
+                    primPos.z = ((float) primChangePosition) / 10000.0;
+                    llSetLinkPrimitiveParamsFast((length-i)+1, [ PRIM_SIZE, primSize, PRIM_POSITION, primPos ]);    // Sets with local coordinates
+                    primChangePosition -= primChangeSize;    // Down we go for the next prim...
+                }
+                ++i;
+            }
+#endif
+#ifdef BUILD_FOR_OPENSIM
+            // For opensim - especially 3rd rock (hadn't tested others yet) - the child prim positions come back
+            //  as zero. This is because the change in position/angle is cumlative - instead of absolute.
+            // The alternative way to calculate movement for the subprims is to:
+            //  1) Find out which size (vertical) that we currently have - that will be used to decide
+            //     which setting we started with - important to know that.
+            //  2) We know the vertical spacing selected so we can use that in our calculations too...
+            // Loops are identical to the SL flavor - just that we know the position change of the link item
+            // has to be completely computed - we can NOT GET prim/link locations... so we take the hud
+            // put it at 0,0 and then we know that the first menu item is at vertical offset Z - from there
+            // we can calculate the correct positioning for each subsequent prim/link - and then we call
+            // the recenter option - so that the hud gets put back where it belongs... but the prims are
+            // then correctly positioned (YUCK!)
+
+            // First we need to know the current prim size - whcih tells us where we are starting...
+            //  The bottom most prim is the one to look for - so go get its size...
+            for (i = 1; (i < length) && CheckEqZero(primChangeSize); ++i)
+            {
+                s = llGetLinkName((length-i)+1);
+                if ("MenuItem:1" == s)
+                {
+                    tmpList = llGetLinkPrimitiveParams((length-i)+1, [ PRIM_SIZE ]);
+                    primSize = llList2Vector(tmpList, 0);
+                    primChangeSize = llRound(primSize.z * 10000.0);
+                }
+            }
+
+            // Check that we know this height - just so we can resize correctly...
+            defaultMenuItem = llListFindList(hudHeightSettings, [ primChangeSize ]);
+            if (CheckEqMinusOne(defaultMenuItem))
+            {
+                llOwnerSay("Eeps - failed to find prim height of "+(string)primChangeSize+" - something strange happened... can't resize vertically");
+                return;
+            }
+
+            // Ok - now we know the starting prim height and the ending prim height - from that we can make a
+            //  delta - which tells us how much to change the total height from one to the other...
+            // May have a bug - need to back up to prim menuname1
+            primChangeSize = llList2Integer(hudHeightSettings, cmd-ClickerMenuHeight1);
+            defaultMenuItem = (primChangeSize / -2) - 790;    // this adjusts just fine....
+            i = i-2;    // Back up to menu prim.
+
+            // Loop through our prims (skip the root as we will NOT move it)
+            //
+            // We start where we left off - at the first menu item and adjust from there to the end (going backwards down the prims)
+            while (i < length)
+            {
+                // We should look - just in case - move MenuItem, MenuText and the last 'None,HScroll' prim - all of them change size and move...
+                s = llGetLinkName((length-i)+1);
+                if ((CheckNeqMinusOne(llSubStringIndex(s, "MenuItem"))) || (CheckNeqMinusOne(llSubStringIndex(s, "MenuText"))) ||  (s == "None,HScroll"))
+                {
+                    tmpList = llGetLinkPrimitiveParams((length-i)+1, [ PRIM_SIZE, PRIM_POSITION ]);
+                    primSize = llList2Vector(tmpList, 0);
+                    primSize.z = ((float) primChangeSize) / 10000.0;
+                    primPos = llList2Vector(tmpList,1);
+                    primPos.z = (float)defaultMenuItem/10000.0;
+                    primPos.y=0.0;
+                    primPos.x=0.0;
+                    llSetLinkPrimitiveParamsFast((length-i)+1, [ PRIM_SIZE, primSize, PRIM_POSITION, primPos ]);    // Sets with local coordinates - which works relative to root prim...
+                    defaultMenuItem -= primChangeSize;    // Down we go for the next prim...
+                }
+                ++i;
+            }
+#endif
+            MessageRecenterHUD();
+            MessageGoToMenu(Define_LISTCHANGEHEIGHTLINKID);
+            return;
+        }
+
+        MessageGoToMenu(Define_ADMINLINKID);
+    }
 }
 
 
+//
+// Reset horozontal HUD menu aspect of things
+//  It's just a mini menu like the other admin menus
+//
+#define HOROZONTAL_CHANGE_MENU_NAME "Set HUD width"
+
+HandleHUDHorozontalSize()
+{
+    integer cmd = llList2Integer(tmpList,0);
+    integer length = llGetListLength(clickerWidthCmds);
+    string s;
+    float width;
+    vector primSize;
+    integer lookingFor;
+    integer defaultMenuItem = -1;    // Default is no menu item selected - just in case
+
+    if (cmd == MenuLite_GetMenuRange)
+    {
+        integer startIndex = llList2Integer(tmpList,1);
+        integer linkid = llList2Integer(tmpList, 2);
+        integer number = llList2Integer(tmpList,3);
+
+        // Check the upper range and adjust downward if required
+        if ((startIndex+number) > length)
+        {
+            number = (length-startIndex);
+        }
+
+        // What is the default width size on the menu? Well... we need to get the current width and
+        //  try to find it in the list of sizes. We'll round up and make it an integer so that we can
+        //  not have to worry about floating point messiness
+        primSize = llList2Vector(llGetLinkPrimitiveParams(LINK_ROOT, [ PRIM_SIZE ]), 0);
+        lookingFor = llRound(primSize.y * 1000.0);
+        
+        // We know that the clicker training menu fits
+        tmpList = [];
+        for (i=0; i < number; ++i)
+        {
+            s = llList2String(clickerWidthMenu, i+startIndex);
+            cmd = llList2Integer(clickerWidthCmds,(startIndex+i));
+            tmpStr = "#"+(string)(i+startIndex+1)+" "+s + "|" + (string)Define_LISTCHANGEWIDTHLINKID + "|" + (string)cmd;
+            AppendStringToList(tmpList, tmpStr);
+            if ((i >= ClickerMenuWidth1) &
+                (llList2Integer(hudWidthSettings, i-ClickerMenuWidth1) == lookingFor))
+            {
+                defaultMenuItem = i; 
+            }
+        }
+
+        tmpStr = llDumpList2String(tmpList, "|||");
+        MessageSendMenuRangeSelected(linkid, HOROZONTAL_CHANGE_MENU_NAME, length, startIndex, Define_FlagRangeConstrainedMenu, Define_LISTCHANGEWIDTHLINKID, tmpStr, defaultMenuItem);
+        tmpList = [];
+        tmpStr = "";
+        return;
+    }
+
+    if (cmd == MenuLite_Select)
+    {
+        // The menu returned to the user was: Clicker(0),Clicker(1)...
+        cmd = llList2Integer(tmpList,1);    // Get the selected item from the list...
+        if ((cmd >= ClickerMenuWidth1) & (cmd <= ClickerMenuWidth8))
+        {
+            length = llGetNumberOfPrims();
+            width = llList2Float(hudWidthSettings, cmd-ClickerMenuWidth1) / 1000.0;
+
+            for (cmd = 0; cmd < length; ++cmd)
+            {
+                primSize = llList2Vector(llGetLinkPrimitiveParams(cmd+1, [ PRIM_SIZE ]), 0);
+                primSize.y = width;
+                llSetLinkPrimitiveParamsFast(cmd+1, [ PRIM_SIZE, primSize ]);
+            }
+            MessageRecenterHUD();
+            MessageGoToMenu(Define_LISTCHANGEWIDTHLINKID);
+            return;
+        }
+
+        MessageGoToMenu(Define_ADMINLINKID);
+    }
+}
+
+#define INVENTORY_THEME_MENU_NAME "Select theme texture"
+HandleThemeSetting()
+{
+    integer cmd = llList2Integer(tmpList,0);
+    integer length = llGetInventoryNumber(INVENTORY_TEXTURE);
+    integer selected = -1;
+    string s;
+    list p2;
+
+    if (cmd == MenuLite_GetMenuRange)
+    {
+        integer startIndex = llList2Integer(tmpList,1);
+        integer linkid = llList2Integer(tmpList, 2);
+        integer number = llList2Integer(tmpList,3);
+
+        // Check the upper range and adjust downward if required
+        if ((startIndex+number) > length+1)    // (Back)+textures
+        {
+            number = (length-startIndex)+1;
+        }
+
+        // We use a constrained menu - it can scroll... but no selections outside of what we show them
+        // We expect that there is at least one texture - and add a back button first...
+        //  We filter nothing out - because the order does matter - but we're hoping to get a theme-based name of a texture on the select
+        tmpList = [ "Back" + "|" + (string)Define_INVENTORYTHEMELINKID + "|" + (string)0 ];    // First menu entry is 'Back'
+        for (i=0; i < number-1; ++i)
+        {
+            s = llGetInventoryName(INVENTORY_TEXTURE, startIndex+i) + "|" + (string)Define_INVENTORYTHEMELINKID + "|" +(string)(startIndex+i+1);
+            AppendStringToList(tmpList, s);
+        }
+        
+        s = llDumpList2String(tmpList, "|||");
+        MessageSendMenuRange(linkid, INVENTORY_THEME_MENU_NAME, length, startIndex, Define_FlagRangeConstrainedMenu, Define_INVENTORYTHEMELINKID, s);
+        tmpList = [];
+        s = "";
+        return;
+    }
+
+    if (cmd == MenuLite_Select)
+    {
+        // The menu returned to the user was: (back)(inventory texture 0)(inventory texture 1)... (till end of menu)
+        selected = llList2Integer(tmpList,1);    // Get the selected item from the list...
+        if ((selected > 0) & (selected <= length))
+        {
+            s = llGetInventoryName(INVENTORY_TEXTURE, selected-1);
+            MessageUISetTheme(s);
+
+            // For the transparent theme - we set transparency to 0% automatically for the user
+            if (s == "~FS Theme Transparent")
+            {
+                transparent = 0;
+                MessageUISetTransparency((string)transparent);
+            }
+        }
+        return;
+    }
+}
+
+//
+// Admin menu for setting the hud transparency menu
+//
+#define CHANGE_TRANSPARENCY_MENU_NAME "Set HUD Transparency"
+
+HandleTransparencySetting()
+{
+    integer cmd = llList2Integer(tmpList,0);
+    integer length = 20;    // Back, %'s from 0 to 90% in increments of 5%
+    string s;
+    integer lookingFor;
+    integer defaultMenuItem = -1;    // We'll figure out what the default choice is...
+
+    if (cmd == MenuLite_GetMenuRange)
+    {
+        integer linkid = llList2Integer(tmpList, 2);
+        integer number = 0;
+
+        // We know that the clicker training menu fits
+        tmpList = [];
+        tmpList = [ "Back" + "|" + (string)Define_INVENTORYTRANSPARENCYLINKID + "|" + (string)0 ];    // First menu entry is 'Back'
+        for (i=0; i < 19; ++i)
+        {
+            tmpStr = "#"+(string)(i+1)+" "+(string)number + "%|" + (string)Define_INVENTORYTRANSPARENCYLINKID + "|" + (string)(i+1);
+            AppendStringToList(tmpList, tmpStr);
+            if (number == transparent)
+            {
+                defaultMenuItem = i+1; 
+            }
+            number += 5;
+        }
+
+        tmpStr = llDumpList2String(tmpList, "|||");
+        MessageSendMenuRangeSelected(linkid, CHANGE_TRANSPARENCY_MENU_NAME, length, 0, Define_FlagRangeConstrainedMenu, Define_INVENTORYTRANSPARENCYLINKID, tmpStr, defaultMenuItem);
+        tmpList = [];
+        tmpStr = "";
+        return;
+    }
+
+    if (cmd == MenuLite_Select)
+    {
+        // The menu returned to the user was:
+        cmd = llList2Integer(tmpList,1);    // Get the selected item from the list...
+        if ((cmd >= 1) & (cmd <= 21))
+        {
+            transparent = (cmd - 1) * 5;
+            MessageUISetTransparency((string)transparent);
+        }
+
+        MessageGoToMenu(Define_ADMINLINKID);
+    }
+}
 
 
 default
 {
-	state_entry()
-	{		
-		FlipAdminBit(AdminErrorsOnLoad);		// Set it so that we get errors while dancing
-		menuLinkid = Define_MENULISTLINKID+1;	// Pretend that the menu selected is menu 1 when we start up
-		recordToLinkid = menuLinkid;			// Just incase (shouldn't matter as we won't display recording unless clicked - but let's be safe :-)
-		
+    state_entry()
+    {        
+        menuLinkid = Define_MENULISTLINKID+1;    // Pretend that the menu selected is menu 1 when we start up
+        recordToLinkid = menuLinkid;             // Just incase (shouldn't matter as we won't display recording unless clicked - but let's be safe :-)
+        
 #ifdef ENABLE_DEBUG_CHECKS
-		// Debugging tests...
-		if (llGetListLength(AdminMenuNumbers) != llGetListLength(AdminMenuNames))
-			llOwnerSay("Programming error in inventory script - AdminMenuNumbers length != AdminMenuNames!");
-		if (llGetListLength(aoMenuCmds) != llGetListLength(aoMenuNames))
-			llOwnerSay("Programming error in inventory script - aoMenuCmds length != aoMenuNames!");
+        // Debugging tests...
+        if (llGetListLength(AdminMenuNumbers) != llGetListLength(AdminMenuNames))
+        {
+            llOwnerSay("Programming error in inventory script - AdminMenuNumbers length != AdminMenuNames!");
+        }
+        if (llGetListLength(aoMenuCmds) != llGetListLength(aoMenuNames))
+        {
+            llOwnerSay("Programming error in inventory script - aoMenuCmds length != aoMenuNames!");
+        }
 #endif
-	}
+    }
 
+    changed(integer flag)
+    {
+        if (flag & CHANGED_OWNER)
+            llResetScript();
+    }
 
-	// This script is controlled completely by linked messages - everything comes in and goes out with a linked message
-	link_message(integer sender_num, integer num, string str, key id)
-	{
-		// Optimize for dropping messages very quickly - so not a lot of lag during useless message handling
-		//  think of this as an optimized get out of here quickly check.
-		if (-1 == llListFindList([Define_ADMINLINKID, Define_INVENTORYANIMLINKID, Define_LISTNOTECARDLINKID, Define_AOMENULINKID, 0], [num]))
-		{
-		        return; // Not our message - poof - go away quickly
-		}
-                
-                
-		tmpList = llParseString2List(str, ["|"], []);
+    // This script is controlled completely by linked messages - everything comes in and goes out with a linked message
+    link_message(integer sender_num, integer num, string str, key id)
+    {
+        tmpList = llParseString2List(str, ["|"], []);
 
-		// Now support for the admin menu		
-		if (Define_ADMINLINKID == num)
-		{
-			HandleAdminMenu();
-			return;
-		}
+        // Now support for the admin menu        
+        if (Define_ADMINLINKID == num)
+        {
+            HandleAdminMenu();
+            return;
+        }
 
-		if (Define_INVENTORYANIMLINKID == num)
-		{
-			HandleInventoryAnimations(id);
-			return;
-		}
+        if (Define_INVENTORYANIMLINKID == num)
+        {
+            HandleInventoryAnimations(id);
+            return;
+        }
 
-		if (Define_LISTNOTECARDLINKID == num)
-		{
-			HandleInventoryNotecards();
-			return;
-		}
-		
-		if (Define_AOMENULINKID == num)
-		{
-			HandleAOMenu();
-			return;
-		}
-		
-		if ((0 == num) && (str == "RESET"))
-			llResetScript();
-	}
+        if (Define_LISTNOTECARDLINKID == num)
+        {
+            HandleInventoryNotecards();
+            return;
+        }
+        
+        if (Define_AOMENULINKID == num)
+        {
+            HandleAOMenu();
+            return;
+        }
+
+        if (Define_LISTCHANGEHEIGHTLINKID == num)
+        {
+            HandleHUDVerticalSize();
+            return;
+        }
+        
+        if (Define_LISTCHANGEWIDTHLINKID == num)
+        {
+            HandleHUDHorozontalSize();
+            return;
+        }
+        
+        if (Define_INVENTORYTHEMELINKID == num)
+        {
+            HandleThemeSetting();
+            return;
+        }
+        if (Define_INVENTORYTRANSPARENCYLINKID == num)
+        {
+            HandleTransparencySetting();
+            return;
+        }
+
+        if (CheckEqZero(num) && (str == "RESET"))
+            llResetScript();
+    }
 }

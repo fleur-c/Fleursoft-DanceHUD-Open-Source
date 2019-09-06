@@ -1,3 +1,5 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
 // MenuList - this script is all about remembering/searching/clearing lists of dance sequences/macros
 //
 // There can be a number of these scripts (up to 100, but we'll never get that far)
@@ -19,18 +21,18 @@
 #include "Utility"
 #include "UtilOwnerSay"
 
-string busyFlag = "";			// Flag to indicate we are doing a long duration item...
-integer scriptNumber = 0;		// Number of this script for menu # purposes (this lets different scripts contain different menus)
-integer linkId = Define_MENULISTLINKID;		// Link id is MENULISTLINKID + scriptNumber (optimizing for speed)
-list sequences = [];			// List of all of the complete sequences (these are the complete sequences!)
-list seqnames = [];				// List of all of the sequence names
-string menuName = "";			// What is the name of this menu?
-integer numberSequences = 0;	// How many sequences do we have?
-integer startingIndex = 0;		// Where do we start when returning results?
-integer freeStyleCounter = 0;	// Count of # of freestyle dances we have recorded
+string busyFlag = "";           // Flag to indicate we are doing a long duration item...
+integer scriptNumber = 0;       // Number of this script for menu # purposes (this lets different scripts contain different menus)
+integer linkId = Define_MENULISTLINKID;        // Link id is MENULISTLINKID + scriptNumber (optimizing for speed)
+list sequences = [];            // List of all of the complete sequences (these are the complete sequences!)
+list seqnames = [];             // List of all of the sequence names
+string menuName = "";           // What is the name of this menu?
+integer numberSequences = 0;    // How many sequences do we have?
+integer startingIndex = 0;      // Where do we start when returning results?
+integer freeStyleCounter = 0;   // Count of # of freestyle dances we have recorded
 
-integer seqIndex = -1;			// Which index have we found the sequence on?
-list msg = [];					// parameters of message
+integer seqIndex = -1;          // Which index have we found the sequence on?
+list msg = [];                  // parameters of message
 
 // Transient variables
 string tmp = "";
@@ -42,45 +44,45 @@ string tmp2 = "";
 //  listed in one place (and you did NOT have to make the list yourself).
 AddSequence(string name, string sequence)
 {
-	integer i = 0;	
-	
-	// Check that we are not out of memory and redirect if we are close to the edge while trying to add this new sequence
-	i = llGetFreeMemory();
-	if (i < MenuLowMemoryToNextMenu)
-	{
-		// Got low memory condition - so redirect this sequence to the next menu if we can
-		// (if we are the max menu #, then we produce an error and drop the sequence)
-		if (scriptNumber < Define_MaxMenuNumber)
-		{
-			OwnerSay("DCMSG015", [ i, scriptNumber, name, (linkId+1-Define_MENULISTLINKID) ]);
-			MessageAddSequence(linkId+1, name, sequence);		
-			MessageSendSequencesHere(linkId+1);
-			return;
-		}
-		OwnerSay("DCMSG016", [ i, scriptNumber, name ]);
-		return;
-	}
+    integer i = 0;    
+    
+    // Check that we are not out of memory and redirect if we are close to the edge while trying to add this new sequence
+    i = llGetFreeMemory();
+    if (i < MenuLowMemoryToNextMenu)
+    {
+        // Got low memory condition - so redirect this sequence to the next menu if we can
+        // (if we are the max menu #, then we produce an error and drop the sequence)
+        if (scriptNumber < Define_MaxMenuNumber)
+        {
+            OwnerSay("DCMSG015", [ i, scriptNumber, name, (linkId+1-Define_MENULISTLINKID) ]);
+            MessageAddSequence(linkId+1, name, sequence);        
+            MessageSendSequencesHere(linkId+1);
+            return;
+        }
+        OwnerSay("DCMSG016", [ i, scriptNumber, name ]);
+        return;
+    }
 
-	// We limit the number of sequences on each menu - so if we are at the max - try to send to
-	//  the next menu (unless we run out of menus and then just try to add it)
-	if (numberSequences >= MenuMaxDances)
-	{
-		if (scriptNumber < Define_MaxMenuNumber)
-		{
-			OwnerSay("DCMSG017", [ scriptNumber, numberSequences, name, (linkId+1-Define_MENULISTLINKID) ]);
-			MessageAddSequence(linkId+1, name, sequence);		
-			MessageSendSequencesHere(linkId+1);
-			return;
-		}
-		OwnerSay("DCMSG018", [ scriptNumber, numberSequences, name ]);
-		return;
-	}
+    // We limit the number of sequences on each menu - so if we are at the max - try to send to
+    //  the next menu (unless we run out of menus and then just try to add it)
+    if (numberSequences >= MenuMaxDances)
+    {
+        if (scriptNumber < Define_MaxMenuNumber)
+        {
+            OwnerSay("DCMSG017", [ scriptNumber, numberSequences, name, (linkId+1-Define_MENULISTLINKID) ]);
+            MessageAddSequence(linkId+1, name, sequence);        
+            MessageSendSequencesHere(linkId+1);
+            return;
+        }
+        OwnerSay("DCMSG018", [ scriptNumber, numberSequences, name ]);
+        return;
+    }
 
-	// Save the parameters of the dance - name, sequence and if we need to prepare it
-	seqnames = AppendStringToList(seqnames, name);
-	sequences = AppendStringToList(sequences, sequence);
-	++numberSequences;
-	Trace("AddSequence",name+":"+(string)numberSequences)
+    // Save the parameters of the dance - name, sequence and if we need to prepare it
+    AppendStringToList(seqnames, name);
+    AppendStringToList(sequences, sequence);
+    ++numberSequences;
+    Trace("AddSequence",name+":"+(string)numberSequences)
 }
 
 
@@ -88,45 +90,46 @@ AddSequence(string name, string sequence)
 //  The idea is to build a list of dances from sequences - very handy for freestyle type dancing
 CopyDancesToMenu(integer toLinkid)
 {
-	integer i;
-	integer j;
-	list p;
-	list sendUs = [];
+    integer i;
+    integer j;
+    list p;
+    list sendUs = [];
 
-	OwnerSay("DCMSG010", [linkId-Define_MENULISTLINKID, toLinkid-Define_MENULISTLINKID, numberSequences]);
-	for (i=0; i<numberSequences; ++i)
-	{
-		msg = llParseString2List(llList2String(sequences,i),["|||"],[]);
-		for (j = 0; j < llGetListLength(msg); ++j)
-		{
-			tmp = llList2String(msg, j);
-			p = llParseString2List(tmp,["|"],[]);
-			if (llList2Integer(p,Define_SequenceKeyword) == keywordDance)
-			{
-				// Remember this dance animation - next keyword will be delay - as the parse only allows this in a sequence
-				sendUs = AppendStringToList(sendUs, tmp);
-				tmp2 = llList2String(p,1);	// Get the dance name for the sequence name
-			}
-			else
-			{
-				if (llList2Integer(p,Define_SequenceKeyword) == keywordDelay)
-				{
-					// On a delay - there are two cases - they could have a delay by itself (sendUs will be empty) and we do nothing
-					//  OR the list will have A dance which we will send to the other menu script to get added.
-					if (llGetListLength(sendUs) > 0)
-					{
-						sendUs = AppendStringToList(sendUs, tmp);
-						tmp = llDumpList2String(sendUs, "|||");
-						MessageAddSequenceDance(toLinkid, tmp2, tmp);
-						sendUs = [];
-					}
-				}
-			}
-		}
-	}
-	tmp = "";
-	tmp2 = "";
-	OwnerSay("DCMSG011", []);
+    OwnerSay("DCMSG010", [linkId-Define_MENULISTLINKID, toLinkid-Define_MENULISTLINKID, numberSequences]);
+    for (i=0; i<numberSequences; ++i)
+    {
+        msg = llParseString2List(llList2String(sequences,i),["|||"],[]);
+        integer length = llGetListLength(msg);
+        for (j = 0; j < length; ++j)
+        {
+            tmp = llList2String(msg, j);
+            p = llParseString2List(tmp,["|"],[]);
+            if (llList2Integer(p,Define_SequenceKeyword) == keywordDance)
+            {
+                // Remember this dance animation - next keyword will be delay - as the parse only allows this in a sequence
+                AppendStringToList(sendUs, tmp);
+                tmp2 = llList2String(p,1);    // Get the dance name for the sequence name
+            }
+            else
+            {
+                if (llList2Integer(p,Define_SequenceKeyword) == keywordDelay)
+                {
+                    // On a delay - there are two cases - they could have a delay by itself (sendUs will be empty) and we do nothing
+                    //  OR the list will have A dance which we will send to the other menu script to get added.
+                    if (llGetListLength(sendUs) > 0)
+                    {
+                        AppendStringToList(sendUs, tmp);
+                        tmp = llDumpList2String(sendUs, "|||");
+                        MessageAddSequenceDance(toLinkid, tmp2, tmp);
+                        sendUs = [];
+                    }
+                }
+            }
+        }
+    }
+    tmp = "";
+    tmp2 = "";
+    OwnerSay("DCMSG011", []);
 }
 
 
@@ -134,367 +137,404 @@ CopyDancesToMenu(integer toLinkid)
 //  AND for dances to be added, we have not done anything bad to the dance sequence/macro
 ParseLinkMessage(string input, string input2, integer toLink)
 {
-	integer i;
-	
-	msg = llParseString2List(input,["|"],[]);
-	i = llList2Integer(msg, 0);
+    integer i;
+    
+    msg = llParseString2List(input,["|"],[]);
+    i = llList2Integer(msg, 0);
 
 
-	//
-	// Handle the standard mini-menu options (get range, select, select string)
-	//
-	// Note: This code is fundamentally the same as in FSLists - just repurposed a lil bit...
-	// 		 Left it in this form so that we could clearly see the same routine as FSLists!
-	//
-	if (i == MenuLite_GetMenuRange)
-	{
-		integer startIndex = llList2Integer(msg,1);
-		integer linkid = llList2Integer(msg, 2);
-		integer number = llList2Integer(msg,3);
+    //
+    // Handle the standard mini-menu options (get range, select, select string)
+    //
+    // Note: This code is fundamentally the same as in FSLists - just repurposed a lil bit...
+    //          Left it in this form so that we could clearly see the same routine as FSLists!
+    //
+    if (i == MenuLite_GetMenuRange)
+    {
+        integer startIndex = llList2Integer(msg,1);
+        integer linkid = llList2Integer(msg, 2);
+        integer number = llList2Integer(msg,3);
 
-		if ((startIndex >= numberSequences) || (startIndex < 0)) {
-			MessageSendMenuRange(linkid, menuName, numberSequences, 0, Define_FlagRangeUnconstrainedMenu, linkId, "");
-			return;
-		}
-		else
-		{
-			// Check the upper range and adjust downward if required
-			if ((startIndex+number) > numberSequences)
-				number = (numberSequences-startIndex);
+        if ((startIndex >= numberSequences) || (startIndex < 0)) {
+            MessageSendMenuRange(linkid, menuName, numberSequences, 0, Define_FlagRangeUnconstrainedMenu, linkId, "");
+            return;
+        }
+        else
+        {
+            // Check the upper range and adjust downward if required
+            if ((startIndex+number) > numberSequences)
+            {
+                number = (numberSequences-startIndex);
+            }
 
-			// We know that something will fit - so take all that we can to the user...
-			msg = [];
-			for (i=0; i < number; ++i)
-			{
-				tmp2 = llList2String(sequences, i+startIndex);
-				if (tmp2 != "")
-				{
-					tmp2 = llList2String(seqnames, i+startIndex);
-					tmp = llDumpList2String(["#"+(string)(startIndex+i+1)+" "+tmp2,linkId,startIndex+i],"|");
-				}
-				else
-					tmp = llDumpList2String([tmp2,Define_COMMENTBLANKLINKID,startIndex+i],"|");					
-				msg = AppendStringToList(msg, tmp);
-			}
-			
-			tmp = llDumpList2String(msg, "|||");
-			MessageSendMenuRange(linkid, menuName, numberSequences, startIndex, Define_FlagRangeUnconstrainedMenu, linkId, tmp);
-			msg = [];
-			tmp = "";
-			tmp2 = "";
-			return;
-		}
-	}
+            // We know that something will fit - so take all that we can to the user...
+            msg = [];
+            for (i=0; i < number; ++i)
+            {
+                tmp2 = llList2String(seqnames, i+startIndex);
+                if (tmp2 != "")
+                {
+                    tmp = "#"+(string)(startIndex+i+1)+" "+tmp2 + "|" + (string)linkId + "|" + (string)(startIndex+i);
+                }
+                else
+                {
+                    tmp = "" + "|" + (string)Define_COMMENTBLANKLINKID + "|" + (string)(startIndex+i);
+                }
+                AppendStringToList(msg, tmp);
+            }
+            
+            tmp = llDumpList2String(msg, "|||");
+            MessageSendMenuRange(linkid, menuName, numberSequences, startIndex, Define_FlagRangeUnconstrainedMenu, linkId, tmp);
+            msg = [];
+            tmp = "";
+            tmp2 = "";
+            return;
+        }
+    }
 
-	if (i == MenuLite_Select)
-	{
-		// The menu returned to the user was: (amim 0)(anim 1)... - select could possibly be anywhere on our menu
-		//  so take the # and see if it's a sequence and send it off to be prepared/dance it... 
-		i = llList2Integer(msg,1);	// Get the selected item from the list...
-		if ((i >= 0) && (i < numberSequences))
-		{
-			tmp = llList2String(seqnames, i);
-			tmp2 = llList2String(sequences, i);
-			if (tmp2 != "")		// For blank lines and comments - we do NOT return a sequence
-			{
-				i = (integer)input2;
-				MessagePrepareSequence(Define_DANCECONTROLLINKID, linkId, tmp, llList2String(["SEQUENCE","DEFERRED","WAITSEQ"], (integer)input2), tmp2);
-			}
-			else
-			{
-				// Wait sequences are a lil different - if we have a blank line or comment - we don't have a wait sequence
-				//  which means we don't actually wait (which is weird) - so instead of doing nothing, we will instead send
-				//  a message back to services indicating that they should select another wait sequence (which will advance
-				//  down our list and eventually get a different wait sequence) - not wonderful - but this will work.
-				if ((integer)input2 == SelectOptionWaitseq)
-					MessageGetWait(linkId);
-			}
-			tmp = "";
-			tmp2 = "";
-			return;
-		}
-		tmp = llList2String(msg,1);
-		OwnerSay("DCMSG007", [tmp]);			
-		return;
-	}
+    if (i == MenuLite_Select)
+    {
+        // The menu returned to the user was: (amim 0)(anim 1)... - select could possibly be anywhere on our menu
+        //  so take the # and see if it's a sequence and send it off to be prepared/dance it... 
+        i = llList2Integer(msg,1);    // Get the selected item from the list...
+        if ((i >= 0) & (i < numberSequences))
+        {
+            tmp = llList2String(seqnames, i);
+            tmp2 = llList2String(sequences, i);
+            if (tmp2 != "")        // For blank lines and comments - we do NOT return a sequence
+            {
+                i = (integer)input2;
+                MessagePrepareSequence(Define_DANCECONTROLLINKID, linkId, tmp, llList2String(["SEQUENCE","DEFERRED","WAITSEQ"], (integer)input2), tmp2);
+            }
+            else
+            {
+                // Wait sequences are a lil different - if we have a blank line or comment - we don't have a wait sequence
+                //  which means we don't actually wait (which is weird) - so instead of doing nothing, we will instead send
+                //  a message back to services indicating that they should select another wait sequence (which will advance
+                //  down our list and eventually get a different wait sequence) - not wonderful - but this will work.
+                if ((integer)input2 == SelectOptionWaitseq)
+                {
+                    MessageGetWait(linkId);
+                }
+            }
+            tmp = "";
+            tmp2 = "";
+            return;
+        }
+        tmp = llList2String(msg,1);
+        OwnerSay("DCMSG007", [tmp]);            
+        return;
+    }
 
-	if (i == MenuLight_SelectString)
-	{
-		// Ok - the user typed something that isn't on the menu and this is an unconstrained menu so we get to look it up
-		// There are two options '#32' and 'something else' - look for the typed number first - if we fail to find it as a number
-		// then we try to look it up as a string - so long as the second character is not a [0-9].
-		tmp = llStringTrim(llDumpList2String(llDeleteSubList(msg,0,0),"|"),STRING_TRIM);	// Get the original string back from the list minus the command used to start us
-		i = -1;	// Assume we will NOT find the item from the user
+    if (i == MenuLight_SelectString)
+    {
+        // Ok - the user typed something that isn't on the menu and this is an unconstrained menu so we get to look it up
+        // There are two options '#32' and 'something else' - look for the typed number first - if we fail to find it as a number
+        // then we try to look it up as a string - so long as the second character is not a [0-9].
+        tmp = llStringTrim(llDumpList2String(llDeleteSubList(msg,0,0),"|"),STRING_TRIM);    // Get the original string back from the list minus the command used to start us
+        i = -1;    // Assume we will NOT find the item from the user
 
-		if (llGetSubString(tmp,0,0) == "#")
-		{
-			// Try to believe that this is a number - skip any whitespace after '#' - for '#   32'
-			tmp2 = llStringTrim(llGetSubString(tmp,1,-1),STRING_TRIM);
-			if (-1 != llListFindList(["0","1","2","3","4","5","6","7","8","9"], [llGetSubString(tmp2,0,0)]))
-			{
-				// Feels like a number to us - so convert it - fall through for range check - and users start at 1 and go up, but we start at 0!
-				i = ((integer)tmp2)-1;
-			}
-		}
-		// If we did NOT find that this was a number - so look it up by name in our list of sequences
-		if (i == -1)
-			i = llListFindList(seqnames, [tmp]);
+        if (llGetSubString(tmp,0,0) == "#")
+        {
+            // Try to believe that this is a number - skip any whitespace after '#' - for '#   32'
+            tmp2 = llStringTrim(llGetSubString(tmp,1,-1),STRING_TRIM);
+            if (CheckNeqMinusOne(llListFindList(["0","1","2","3","4","5","6","7","8","9"], [llGetSubString(tmp2,0,0)])))
+            {
+                // Feels like a number to us - so convert it - fall through for range check - and users start at 1 and go up, but we start at 0!
+                i = ((integer)tmp2)-1;
+            }
+        }
+        // If we did NOT find that this was a number - so look it up by name in our list of sequences
+        if (CheckEqMinusOne(i))
+        {
+            i = llListFindList(seqnames, [tmp]);
+        }
 
-		if ((i >= 0) && (i < numberSequences))
-		{
-			tmp = llList2String(seqnames, i);
-			tmp2 = llList2String(sequences, i);
-				// Select via string very nearly ALWAYS starts a new sequence
+        if ((i >= 0) & (i < numberSequences))
+        {
+            tmp = llList2String(seqnames, i);
+            tmp2 = llList2String(sequences, i);
+                // Select via string very nearly ALWAYS starts a new sequence
 
-			if (tmp2 != "")		// For blank lines and comments - we do NOT return a sequence
-				MessagePrepareSequence(Define_DANCECONTROLLINKID, linkId, tmp, "SEQUENCE", tmp2);
+            if (tmp2 != "")        // For blank lines and comments - we do NOT return a sequence
+            {
+                MessagePrepareSequence(Define_DANCECONTROLLINKID, linkId, tmp, "SEQUENCE", tmp2);
+            }
 
-			tmp = "";
-			tmp2 = "";
-			return;
-		}
+            tmp = "";
+            tmp2 = "";
+            return;
+        }
 
-		// If the string select was NOT for the general 'all menus search' then tell the user
-		//  we failed to find the sequence name
-		if (toLink != Define_MENULISTLINKID)
-			OwnerSay("DCMSG007", [tmp]);
-		tmp = "";
-		tmp2 = "";
-		return;
-	}
-	//
-	// Resume checking for command numbers...
-	//
+        // If the string select was NOT for the general 'all menus search' then tell the user
+        //  we failed to find the sequence name
+        if (toLink != Define_MENULISTLINKID)
+        {
+            OwnerSay("DCMSG007", [tmp]);
+        }
+        tmp = "";
+        tmp2 = "";
+        return;
+    }
+    //
+    // Resume checking for command numbers...
+    //
 
-	// Two modes for next sequence - either advance (and rotate mode) OR random mode - both
-	//  need to retry when there is no sequence there... we do not know the last selection yet...
-	if (i == List_NextSequence)
-	{
-		integer notFound = TRUE;
-		integer selected = -1;
-		integer attempts = 0;
-		
-		msg = llParseString2List(input2,["|"],[]);
-		selected = llList2Integer(msg,1);
+    // Two modes for next sequence - either advance (and rotate mode) OR random mode - both
+    //  need to retry when there is no sequence there... we do not know the last selection yet...
+    if (i == List_NextSequence)
+    {
+        integer notFound = TRUE;
+        integer selected = -1;
+        integer attempts = 0;
+        
+        msg = llParseString2List(input2,["|"],[]);
+        selected = llList2Integer(msg,1);
 
-		while (notFound)
-		{
-			if (llList2Integer(msg,0))
-				selected = (integer) llFrand(numberSequences);
-			else
-				selected++;
+        while (notFound)
+        {
+            if (llList2Integer(msg,0))
+            {
+                selected = (integer) llFrand(numberSequences);
+            }
+            else
+            {
+                ++selected;
+            }
 
-			if (selected >= numberSequences)
-				selected = 0;
+            if (selected >= numberSequences)
+            {
+                selected = 0;
+            }
 
-			tmp = llList2String(seqnames, selected);
-			tmp2 = llList2String(sequences, selected);
+            tmp = llList2String(seqnames, selected);
+            tmp2 = llList2String(sequences, selected);
 
-			if (tmp2 != "")		// blank lines and comments have nothing as the sequence - so if we find anything - this is the 'next' sequence
-				notFound = FALSE;
-			attempts++;
+            if (tmp2 != "")        // blank lines and comments have nothing as the sequence - so if we find anything - this is the 'next' sequence
+            {
+                notFound = FALSE;
+            }
+            ++attempts;
 
-			if (attempts >= numberSequences)
-			{
-				OwnerSay("MMSG003", [] );
-				return;	// We could do something else here - but we will NOT try - let the current animation keep going
-						//  till the user clicks another dance...
-			}
-		}
-		
-		MessagePrepareSequence(Define_DANCECONTROLLINKID, linkId, tmp, "SEQUENCE", tmp2);
-		tmp = "";
-		tmp2 = "";
-		return;
-	}
-
-
-	if (i == List_AddSequence)
-	{
-		// Save the parameters of the dance (name) + where the sequence is in the sequence list
-		AddSequence(llList2String(msg,1), input2);
-		return;
-	}
-
-	if (i == List_AddSequenceDance)
-	{
-		// Add a special sequence - just a name of a dance animation and a duration - we do unique
-		//  insert and remember the maximum delay value - dropping all the others.
-		AddSequence(llList2String(msg,1), input2);
-		return;
-	}
-
-
-	// We have two special additions - a blank line and a comment - neither of which are sequences, but
-	//  we reserve the space in the list for the user. This allows users to position things on their
-	//  menus how they would like to position them (it's not our menu).
-	if (i == List_AddBlankLine)
-	{
-		AddSequence(" ", "");	// Nothing to be stored as the sequence... and the sequence name is ' ' so we can send it safely...
-		return;
-	}
-	if (i == List_AddComment)
-	{
-		AddSequence(input2, "");	// Comments get added as the sequence name and no content
-		return;
-	}
+            if (attempts >= numberSequences)
+            {
+                OwnerSay("MMSG003", [] );
+                return;    // We could do something else here - but we will NOT try - let the current animation keep going
+                        //  till the user clicks another dance...
+            }
+        }
+        
+        MessagePrepareSequence(Define_DANCECONTROLLINKID, linkId, tmp, "SEQUENCE", tmp2);
+        tmp = "";
+        tmp2 = "";
+        return;
+    }
 
 
-	
-		// Like addsequence - except that we make up the name for a freestyle dance being added to the menu
-	if (i == List_AddFreestyle)
-	{
-		// Check if we already know this dance sequence name or not... any duplicate names are skipped
-		i = llListFindList(seqnames, [Define_DefaultFreeStyleName+(string)(freeStyleCounter+1)]);
-		while (i != -1)
-		{
-			
-			// If we found a matching sequence name, just increment to the next one and try again (this could take a little while...)
-			// We may want to tell the user that we're busy... (or not) - skipping this for now...
-			++freeStyleCounter;
-			i = llListFindList(seqnames, [Define_DefaultFreeStyleName+(string)(freeStyleCounter+1)]);
-		}
+    if (i == List_AddSequence)
+    {
+        // Save the parameters of the dance (name) + where the sequence is in the sequence list
+        AddSequence(llList2String(msg,1), input2);
+        return;
+    }
 
-		// Save the parameters of the dance (name, notecard) + where the sequence is in the sequence list
-		tmp = Define_DefaultFreeStyleName+(string)(freeStyleCounter+1);
-		AddSequence(tmp, input2);
-		++freeStyleCounter;
-		MessageSendFreestyleAdded(tmp,linkId);
-		return;
-	}
+    if (i == List_AddSequenceDance)
+    {
+        // Add a special sequence - just a name of a dance animation and a duration - we do unique
+        //  insert and remember the maximum delay value - dropping all the others.
+        AddSequence(llList2String(msg,1), input2);
+        return;
+    }
 
 
-	// Lookup the sequence name in the list of names (if we are given one in the input)
-	// Note: This is only for SHOW and REMOVE - so it's reasonable to common code their
-	// validation here... no sense in checking before as it makes no sense - and making
-	// it common takes us to before we check the command number... also means that the
-	// routines for these are simple - just take the index and use it.
-	seqIndex = -2;
-	if ((i >= List_MinHasSeqName) && (i <= List_MaxHasSeqName))
-		seqIndex = llListFindList(seqnames, [llList2String(msg,1)]);
-	else
-	{
-		if ((i >= List_MinHasSeqNum) && (i <= List_MaxHasSeqNum))
-		{
-			seqIndex = llList2Integer(msg,1);
-			if ((seqIndex < 1) || (seqIndex > numberSequences))
-				seqIndex = -1;
-		}
-	}
-	if (seqIndex == -1)
-	{
-			OwnerSay("MMSG001", [llList2String(msg,1), menuName]);
-			return;
-	}
+    // We have two special additions - a blank line and a comment - neither of which are sequences, but
+    //  we reserve the space in the list for the user. This allows users to position things on their
+    //  menus how they would like to position them (it's not our menu).
+    if (i == List_AddBlankLine)
+    {
+        AddSequence(" ", "");    // Nothing to be stored as the sequence... and the sequence name is ' ' so we can send it safely...
+        return;
+    }
+    if (i == List_AddComment)
+    {
+        AddSequence(input2, "");    // Comments get added as the sequence name and no content
+        return;
+    }
 
-	// Back to our common code path for commands from the message...
-	if (i == List_RemoveSeq)
-	{
-		seqnames = DeleteListEntry(seqnames, seqIndex);
-		sequences = DeleteListEntry(sequences, seqIndex);
-		--numberSequences;
-		MessageSendForgotSequence();
-		return;
-	}
 
-	if (i == List_ShowSequence)
-	{
-		tmp = llList2String(seqnames,seqIndex);
-		tmp2 = llList2String(sequences, seqIndex);
-		MessageShowSequenceDebug(tmp, tmp2);
-		tmp = "";
-		tmp2 = "";
-		return;
-	}
+    
+        // Like addsequence - except that we make up the name for a freestyle dance being added to the menu
+    if (i == List_AddFreestyle)
+    {
+        // Check if we already know this dance sequence name or not... any duplicate names are skipped
+        i = llListFindList(seqnames, [Define_DefaultFreeStyleName+(string)(freeStyleCounter+1)]);
+        while (CheckNeqMinusOne(i))
+        {
+            
+            // If we found a matching sequence name, just increment to the next one and try again (this could take a little while...)
+            // We may want to tell the user that we're busy... (or not) - skipping this for now...
+            ++freeStyleCounter;
+            i = llListFindList(seqnames, [Define_DefaultFreeStyleName+(string)(freeStyleCounter+1)]);
+        }
 
-	if (i == List_ShowAllSequences)
-	{
-		if (numberSequences == 0)
-		{
-			OwnerSay("MMSG005", [] );
-			return;
-		}
-	
-		for (seqIndex = 0; seqIndex < numberSequences; ++seqIndex)
-		{
-			tmp = llList2String(seqnames,seqIndex);
-			tmp2 = llList2String(sequences, seqIndex);
-			MessageShowSequenceDebug(tmp, tmp2);
-			tmp = "";
-			tmp2 = "";
-		}
-		return;
-	}
+        // Save the parameters of the dance (name, notecard) + where the sequence is in the sequence list
+        tmp = Define_DefaultFreeStyleName+(string)(freeStyleCounter+1);
+        AddSequence(tmp, input2);
+        ++freeStyleCounter;
+        MessageSendFreestyleAdded(tmp,linkId);
+        return;
+    }
 
-	if (i == List_ClearMenu)
-	{
-		// Clear everything from this menu and reset to be an empty menu (even the name is reset)
-		OwnerSay("DCMSG014", [ scriptNumber] );
-		MessageSendClearedMenu();
-		llResetScript();
-		return;
-	}
 
-	if (i == List_CopyDances)
-	{
-		CopyDancesToMenu((integer)input2);
-		return;
-	}
+    // Lookup the sequence name in the list of names (if we are given one in the input)
+    // Note: This is only for SHOW and REMOVE - so it's reasonable to common code their
+    // validation here... no sense in checking before as it makes no sense - and making
+    // it common takes us to before we check the command number... also means that the
+    // routines for these are simple - just take the index and use it.
+    seqIndex = -2;
+    if ((i >= List_MinHasSeqName) & (i <= List_MaxHasSeqName))
+    {
+        seqIndex = llListFindList(seqnames, [llList2String(msg,1)]);
+    }
+    else
+    {
+        if ((i >= List_MinHasSeqNum) & (i <= List_MaxHasSeqNum))
+        {
+            seqIndex = llList2Integer(msg,1);
+            if ((seqIndex < 1) || (seqIndex > numberSequences))
+            {
+                seqIndex = -1;
+            }
+        }
+    }
+    if (CheckEqMinusOne(seqIndex))
+    {
+            OwnerSay("MMSG001", [llList2String(msg,1), menuName]);
+            return;
+    }
 
-	if (i == List_SetMenuName)
-	{
-		menuName = llList2String(msg,1);
-		Trace("link_msg:setmenuname",menuName)
-		return;
-	}
+    // Back to our common code path for commands from the message...
+    if (i == List_RemoveSeq)
+    {
+        seqnames = DeleteListEntry(seqnames, seqIndex);
+        sequences = DeleteListEntry(sequences, seqIndex);
+        --numberSequences;
+        MessageSendForgotSequence();
+        return;
+    }
 
-	Debug_MenuList("Unknown command - skipping it. Input was:"+input);
-	return;
+    if (i == List_ShowSequence)
+    {
+        tmp = llList2String(seqnames,seqIndex);
+        tmp2 = llList2String(sequences, seqIndex);
+        MessageShowSequenceDebug(tmp, tmp2);
+        tmp = "";
+        tmp2 = "";
+        return;
+    }
+
+    if (i == List_ShowAllSequences)
+    {
+        if (CheckEqZero(numberSequences))
+        {
+            OwnerSay("MMSG005", [] );
+            return;
+        }
+    
+        for (seqIndex = 0; seqIndex < numberSequences; ++seqIndex)
+        {
+            tmp = llList2String(seqnames,seqIndex);
+            tmp2 = llList2String(sequences, seqIndex);
+            MessageShowSequenceDebug(tmp, tmp2);
+            tmp = "";
+            tmp2 = "";
+        }
+        return;
+    }
+
+    if (i == List_ClearMenu)
+    {
+        // Clear everything from this menu and reset to be an empty menu (even the name is reset)
+        OwnerSay("DCMSG014", [ scriptNumber] );
+        MessageSendClearedMenu();
+        llResetScript();
+        return;
+    }
+
+    if (i == List_CopyDances)
+    {
+        CopyDancesToMenu((integer)input2);
+        return;
+    }
+
+    if (i == List_SetMenuName)
+    {
+        menuName = llList2String(msg,1);
+        Trace("link_msg:setmenuname",menuName)
+        return;
+    }
+
+    Debug_MenuList("Unknown command - skipping it. Input was:"+input)
+    return;
 }
 
 
 default
 {
-	state_entry()
-	{
-		// And now we lookup our unique id for receiving menu requests...
-		list numberCheck=["0","1","2","3","4","5","6","7","8","9"];
-		string script;
-		integer i;
-	
-			
-		// Get the script name and if there is a # or ## at the end, we use that as our script number
-		script = llGetScriptName();
-		scriptNumber = 0;
-		i = llListFindList(numberCheck, [llGetSubString(script, -1, -1)]);
-		if (i != -1)
-		{
-			scriptNumber += i;
-			i = llListFindList(numberCheck, [llGetSubString(script, -2, -2)]);
-			if (i != -1)
-				scriptNumber += 10 * i;
-		}
-		
-		// The script # is used to determine our link id (so, how we receive link messages) AND
-		//  the default menu name (which is script#) - humans like to start at 1, computers 0 (sigh)
-		//  We WILL have menu #'s after the script names... just to ensure we know which script we are talking to correctly
-		Debug_MenuList("MenuList script:"+script+" - Set the script number to:"+(string)scriptNumber);
-		linkId = Define_MENULISTLINKID + scriptNumber;
-		menuName = "Menu "+(string)(scriptNumber);	// Make a pretty default 'Menu #' name for this menu container
-	}
+    state_entry()
+    {
+        // And now we lookup our unique id for receiving menu requests...
+        list numberCheck=["0","1","2","3","4","5","6","7","8","9"];
+        string script;
+        integer i;
+    
+            
+        // Get the script name and if there is a # or ## at the end, we use that as our script number
+        script = llGetScriptName();
+        scriptNumber = 0;
+        i = llListFindList(numberCheck, [llGetSubString(script, -1, -1)]);
+        if (CheckNeqMinusOne(i))
+        {
+            scriptNumber += i;
+            i = llListFindList(numberCheck, [llGetSubString(script, -2, -2)]);
+            if (CheckNeqMinusOne(i))
+            {
+                scriptNumber += 10 * i;
+            }
+        }
+        
+        // The script # is used to determine our link id (so, how we receive link messages) AND
+        //  the default menu name (which is script#) - humans like to start at 1, computers 0 (sigh)
+        //  We WILL have menu #'s after the script names... just to ensure we know which script we are talking to correctly
+        Debug_MenuList("MenuList script:"+script+" - Set the script number to:"+(string)scriptNumber)
+        linkId = Define_MENULISTLINKID + scriptNumber;
+        menuName = "Menu "+(string)(scriptNumber);    // Make a pretty default 'Menu #' name for this menu container
+    }
 
-	// Link messages can receive two strings - the key is a special flavor of string
-	//  that if we just typecast correctly, we can pass two strings just fine.
-	link_message(integer sender_num, integer num, string str, key id)
-	{
-		if (linkId == num)
-			ParseLinkMessage(str, (string) id, num);
+    changed(integer flag)
+    {
+        if (flag & CHANGED_OWNER)
+            llResetScript();
+    }
 
-		if (Define_MENULISTLINKID == num)
-			ParseLinkMessage(str, (string) id, num);
+    // Link messages can receive two strings - the key is a special flavor of string
+    //  that if we just typecast correctly, we can pass two strings just fine.
+    link_message(integer sender_num, integer num, string str, key id)
+    {
+        if (linkId == num)
+        {
+            ParseLinkMessage(str, (string) id, num);
+        }
 
-		// If the script was reset, then make sure that EVERYTHING has been reset
-		if ((num == 0) && (str == "RESET"))
-			llResetScript();
-	}
+        if (Define_MENULISTLINKID == num)
+        {
+            ParseLinkMessage(str, (string) id, num);
+        }
+
+        // If the script was reset, then make sure that EVERYTHING has been reset
+        if (CheckEqZero(num) && (str == "RESET"))
+        {
+            llResetScript();
+        }
+    }
 }

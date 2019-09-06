@@ -1,0 +1,77 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+//
+// This is an open source version of the Fleursoft Product script - the idea is that
+// this script emulates the basic interfaces of the FSProduct script from the
+// product.
+//
+// This script provides the open source version of update, transfer and display of
+// the product information (product name and version).
+//
+// Added a message handler for showing the product revision...
+// Message is to the product link id and has a command of "show"
+//
+// This allows the handling to be different between open source and
+// product - simply by having just one script with all of the differences.
+//
+// Open source version - simple - doesn't do a lot.
+// Closed source version - much more complex... but that's ok :)
+
+#include "Trace"
+#ifdef UNIT_TEST_TRACING
+#define MODULE "FSProduct:"
+#endif
+#include "GlobalDefinitions"
+#include "LinkIds.h"
+#include "Lists.h"
+
+// My optimizer assumes there is at least one routine outside of default...
+// dumb bug... but... (shrug) for now just wrap llOwnerSay to have a routine.
+OwnerSay(string msg)
+{
+    llOwnerSay(msg+" is a Fleursoft DanceHUD product only feature. To enable both Update and Transfer buy the Fleursoft DanceHUD");
+}
+
+
+default
+{
+    state_entry()
+    {        
+        // As we startup, it is good to tell the user what we are starting...
+        llOwnerSay(CompanyName+" "+ProductName+" revision:"+DanceHUD_Revision);
+    }
+
+    changed(integer flag)
+    {
+        if (flag & CHANGED_OWNER)
+            llResetScript();
+    }
+
+    link_message(integer sender_num, integer num, string str, key id)
+    {
+        // Now support for the admin menu for transfer and update... not so much here...       
+        if (Define_TRANSFERLINKID == num)
+        {
+            OwnerSay("Transfer");
+            MessageGoToMenu(Define_ADMINLINKID);
+            return;
+        }
+        if (Define_UPDATELINKID == num)
+        {
+            OwnerSay("Update");
+            MessageGoToMenu(Define_ADMINLINKID);
+            return;
+        }
+        if (Define_PRODUCTLINKID == num)
+        {
+            if (str == "show")
+            {
+                llOwnerSay(CompanyName+" "+ProductName+" "+DanceHUD_Revision);
+                return;
+            }
+        }
+
+        if (CheckEqZero(num) && (str == "RESET"))
+            llResetScript();
+
+    }
+}
