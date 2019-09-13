@@ -1,22 +1,15 @@
 #!/usr/bin/perl
+# This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
 #
-# This script simply gets the GPL license back in place for the FSZHAO script.
-# We take out the first two lines (start with //) and put in the ZHAO II core
-# copyright notice.
+# This script simply gets the GPL license back in place for the FSZHAO (or FSZHAO-OS) script.
+# The difference between them is the FSZHAO was modified a long while ago which had the most
+# up to date ZHAO II that I could find. FSZHAO-OS works on OpenSim.
+#
+# Insert the copyright at the top of the script.
 
-$count = 0;
-while ($line = <STDIN>)
+if ($ARGV[0] eq '1')
 {
-	chomp($line);
-
-	# Look for the first comment line
-	if ($line =~ /^\/\//)
-	{
-		if ($count == 0)
-		{
-
-		$count++;
-		print '
+print '
 // ZHAO-II-core - Ziggy Puff, 07/07
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -201,11 +194,142 @@ while ($line = <STDIN>)
 // Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307, USA.
 
 ';
+}
+if ($ARGV[0] eq '2')
+{
+    print '
+// ZHAO-II-core - Ziggy Puff, 07/07
 
-		}
-	}
-	else
-	{
-		print "$line\n";
-	}
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+// Main engine script - receives link messages from any interface script. Handles the core AO work
+//
+// Interface definition: The following link_message commands are handled by this script. All of 
+// these are sent in the string field. All other fields are ignored
+//
+// ZHAO_RESET                          Reset script
+// ZHAO_LOAD|<notecardName>            Load specified notecard
+// ZHAO_NEXTSTAND                      Switch to next stand
+// ZHAO_STANDTIME|<time>               Time between stands. Specified in seconds, expects an integer.
+//                                     0 turns it off
+// ZHAO_AOON                           AO On
+// ZHAO_AOOFF                          AO Off
+// ZHAO_SITON                          Sit On
+// ZHAO_SITOFF                         Sit Off
+// ZHAO_RANDOMSTANDS                   Stands cycle randomly
+// ZHAO_SEQUENTIALSTANDS               Stands cycle sequentially
+// ZHAO_SETTINGS                       Prints status
+// ZHAO_SITS                           Select a sit
+// ZHAO_GROUNDSITS                     Select a ground sit
+// ZHAO_WALKS                          Select a walk
+//
+// So, to send a command to the ZHAO-II engine, send a linked message:
+//
+//   llMessageLinked(LINK_SET, 0, "ZHAO_AOON", NULL_KEY);
+//
+// This script uses a listener on channel -91234. If other scripts are added to the ZHAO, make sure 
+// they don\'t use the same channel
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+// New notecard format
+//
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+// Lines starting with a / are treated as comments and ignored. Blank lines are ignored. Valid lines 
+// look like this:
+//
+// [ Walking ]SexyWalk1|SexyWalk2|SexyWalk3
+//
+// The token (in this case, [ Walking ]) identifies the animation to be overridden. The rest is a 
+// list of animations, separated by the \'|\' (pipe) character. You can specify multiple animations 
+// for Stands, Walks, Sits, and GroundSits. Multiple animations on any other line will be ignored. 
+// You can have up to 12 animations each for Walks, Sits and GroundSits. There is no hard limit 
+// on the number of stands, but adding too many stands will make the script run out of memory and 
+// crash, so be careful. You can repeat tokens, so you can split the Stands up across multiple lines. 
+// Use the [ Standing ] token in each line, and the script will add the animation lists together.
+//
+// Advanced: Each \'animation name\' can be a comma-separated list of animations, which will be played 
+// together. For example:
+//
+// [ Walking ]SexyWalk1UpperBody,SexyWalk1LowerBody|SexyWalk2|SexyWalk3
+//
+// Note the \',\' between SexyWalk1UpperBody and SexyWalk1LowerBody - this tells ZHAO-II to treat these 
+// as a single \'animation\' and play them together. The \'|\' between this \'animation\' and SexyWalk2 tells 
+// ZHAO-II to treat SexyWalk2 and SexyWalk3 as separate walk animations. You can use this to layer 
+// animations on top of each other.
+//
+// Do not add any spaces around animation names!!!
+//
+// The token can be one of the following:
+//
+// [ Standing ]
+// [ Walking ]
+// [ Sitting ]
+// [ Sitting On Ground ]
+// [ Crouching ]
+// [ Crouch Walking ]
+// [ Landing ]
+// [ Standing Up ]
+// [ Falling ]
+// [ Flying Down ]
+// [ Flying Up ]
+// [ Flying ]
+// [ Flying Slow ]
+// [ Hovering ]
+// [ Jumping ]
+// [ Pre Jumping ]
+// [ Running ]
+// [ Turning Right ]
+// [ Turning Left ]
+// [ Floating ]
+// [ Swimming Forward ]
+// [ Swimming Up ]
+// [ Swimming Down ]
+//
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Fleur, 04/22/17 - Changes to support fleursoft dancehud
+//                 - Removed dialog/listen - using DanceHUD UI instead and messages
+
+// Ziggy, 07/16/07 - Warning instead of error on \'no animation in inventory\', that way SL\'s built-in
+//                   anims can be used
+//
+// Ziggy, 07/14/07 - 2 bug fixes. Listens aren\'t being reset on owner change, and a typo in the 
+//                   ground sit animation code
+//
+// Ziggy, 06/07:
+//          Reduce script count, since idle scripts take up scheduler time
+//          Tokenize notecard reader, to simplify notecard setup
+//          Remove scripted texture changes, to simplify customization by animation sellers
+
+// Fennec Wind, January 18th, 2007:
+//          Changed Walk/Sit/Ground Sit dialogs to show animation name (or partial name if too long) 
+//          and only show buttons for non-blank entries.
+//          Fixed minor bug in the state_entry, ground sits were not being initialized.
+//
+
+// Dzonatas Sol, 09/06: Fixed forward walk override (same as previous backward walk fix). 
+
+
+// Based on Francis Chung\'s Franimation Overrider v1.8
+
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307, USA.
+';
+}
+while ($line = <STDIN>)
+{
+    chomp($line);
+
+    print "$line\n";
 }

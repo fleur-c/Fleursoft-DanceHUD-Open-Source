@@ -1,3 +1,5 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
 #ifndef GLOBALDEFINITIONS
 #define GLOBALDEFINITIONS
 
@@ -13,61 +15,60 @@
 
 #include "LinkIds.h"
 
-
-// Define which environment we are building for:
-//   SL or OPENSIM - and which OpenSim (hadn't tested in inworldz or avination yet
-//      - but I'll bet that there is something different on each of them...)
-#define BUILD_FOR_SL
-#undef BUILD_FOR_OPENSIM
-//#undef BUILD_FOR_SL
-//#define BUILD_FOR_OPENSIM
-//#define BUILD_FOR_3RD_ROCK
-//#define BUILD_FOR_INWORLDZ
-//#define BUILD_FOR_AVINATION
-
-
-// Do we do the extra debug checks or not?
+// Do we do the extra debug checks or not? (this is only for list checking in FSLists)
 // #define ENABLE_DEBUG_CHECKS 1
 
+// Do we use dancehud integration with ZHAO II? (yes)
+#define ZHAO_DANCEHUD_INTEGRATION 1
+
+#define ProductBasicName "DanceHUD"
 #define ProductName "DanceHUD OpenSource"
-	// Define the product name so that any script can have the name correct
+    // Define the product name so that any script can have the name correct
+
+#define CompanyName "Fleursoft"
+#define DanceHUDDocumentation "http://fleursoft.com/"
+
+// Define the product revision number
+#define DanceHUD_Revision "1.5"
+    // This has to be changed on every update
 
 #define Define_EmergencyListenNumber 121234
-	// This is for the default emergency listen - simply shows in chat all info for ANY command
+    // This is for the default emergency listen - simply shows in chat all info for ANY command
+
 
 #define Define_MaxMenuNumber 10
-	// Menu #'s go from 1 to this number
+    // Menu #'s go from 1 to this number
 #define Define_DefaultNoDelayAfterDance -1
-	// This is the delay which is inserted when a dance does NOT have one specified in the notecard
+    // This is the delay which is inserted when a dance does NOT have one specified in the notecard
 #define Define_DefaultDanceDuration 3000
-	// Default duration for a dance (if it does NOT have a delay defined after it's name) - 300 seconds or 5 minutes
-	//  The dance master will check for the no delay value and use this duration instead.
+    // Default duration for a dance (if it does NOT have a delay defined after it's name) - 300 seconds or 5 minutes
+    //  The dance master will check for the no delay value and use this duration instead.
 #define Define_DefaultNumberLines 30
-	// What is the default # of lines to display? (for chat we are using 30)
+    // What is the default # of lines to display? (for chat we are using 30)
 #define Define_MaxFKeys 12
-	// What is the maximum number of function keys we support? (chat fkey # string|string|string - commands)
+    // What is the maximum number of function keys we support? (chat fkey # string|string|string - commands)
 #define Define_DelayBetweenLoadAllAnims 5.0
-	// What is the delay between loading more animations with each active dancer? (# of seconds)
-	//  (we get to this in Chat IF the last dancer script does not respond within # seconds)
+    // What is the delay between loading more animations with each active dancer? (# of seconds)
+    //  (we get to this in Chat IF the last dancer script does not respond within # seconds)
 #define Define_DelayBetweenDancerLoadAllAnims 0.1
-	// Delay for how long we plan an animation in the dancer script for loading it quickly...
+    // Delay for how long we plan an animation in the dancer script for loading it quickly...
 
 #define Define_MaxLoops 10
-	// WHat is the # of times we should allow a dance to loop?
+    // WHat is the # of times we should allow a dance to loop?
 #define ErrorMsgsNotecard "~FSErrors"
-	// notecard name for the error messages
+    // notecard name for the error messages
 #define DefaultThemeName "~FS Theme Basic"
-	// What is the default theme texture name?
+    // What is the default theme texture name?
 #define ReadMeGettingStarted "~FS Readme - DanceHUD - Getting started"
-	// What is the name of the notecard to give to the owner?
+    // What is the name of the notecard to give to the owner?
 #define MenuLowMemoryToNextMenu 8192
-	// Low memory indication that if we have this much or less - then send the sequence to the next menu
-	//  (this means that read notecard needs to get told to do that too)
+    // Low memory indication that if we have this much or less - then send the sequence to the next menu
+    //  (this means that read notecard needs to get told to do that too)
 #define DefaultDanceDuration 30
-	// Default dance duration (if using it at all!)
+    // Default dance duration (if using it at all!)
 
 
-	// Define the maximum number of dances we allow per menu (to have some free memory to use)	
+    // Define the maximum number of dances we allow per menu (to have some free memory to use)    
 #define MenuMaxDances 150
 
 
@@ -88,19 +89,21 @@
 
 // User Interface commands and definitions
 #define UI_ReturnToUserMenu 1
-	// Indicates we should go back to the previous user menu (1-N or Inventory)
+    // Indicates we should go back to the previous user menu (1-N or Inventory)
 #define UI_GoToMenu 2
-	// Indicates that we need to go to a specific menu (linkid included)
+    // Indicates that we need to go to a specific menu (linkid included)
 #define UI_GoToMenuOption_BackToAO 424242
-	// This is for when we load a notecard for AO and then need to return to the previous menu - which will be the AO menu... (instead of Admin)
+    // This is for when we load a notecard for AO and then need to return to the previous menu - which will be the AO menu... (instead of Admin)
 #define UI_StartedSequence 3
-	// Indicates that the dance controller started a specific sequence (dance or wait)
+    // Indicates that the dance controller started a specific sequence (dance or wait)
 #define UI_RecordingSequences 4
-	// Sent to UI when recording of sequences flag changes in Dance Control
+    // Sent to UI when recording of sequences flag changes in Dance Control
 #define UI_LoadNotecard 5
-	// Receive which notecard to load and send the Read request out with the correct user link id
+    // Receive which notecard to load and send the Read request out with the correct user link id
+#define UI_StartUpdate 6
+    // Stop updating the UI while an upgrade starts...
 #define UI_ScrollMenu 7
-	// Scroll the menu a direction (options below)
+    // Scroll the menu a direction (options below)
 #define Scroll_Down 1
 #define Scroll_Up 2
 #define Scroll_Top 3
@@ -109,74 +112,80 @@
 #define Scroll_Wait 6
 
 #define UI_SetMode 8
-	// Set the UI mode to one of the following values:
+    // Set the UI mode to one of the following values:
 // Mode settings
 #define Mode_Off 0
 #define Mode_Dancing 1
 #define Mode_AO 2
 
-	// Now we have two commands for Chat to use - chat can NOT get the linkid or item # to select quite right - as all of the
-	//  select routines want the number from the parameter list sent to UI (that's where we find the linkid AND option # that
-	//  needs to be returned appropriately)
-	// These two commands are very much like the mini-menu select/select-string options except we don't have a get range
-	//  associated with UI (no reason for that - it's whacked in the head to think we need it). Chat is the only user of
-	//  these two requests and only to get the UI to decide what needs to be done for what was typed. These use the constrained
-	//  menu flag inside of UI to decide how to handle the request...
+    // Now we have two commands for Chat to use - chat can NOT get the linkid or item # to select quite right - as all of the
+    //  select routines want the number from the parameter list sent to UI (that's where we find the linkid AND option # that
+    //  needs to be returned appropriately)
+    // These two commands are very much like the mini-menu select/select-string options except we don't have a get range
+    //  associated with UI (no reason for that - it's whacked in the head to think we need it). Chat is the only user of
+    //  these two requests and only to get the UI to decide what needs to be done for what was typed. These use the constrained
+    //  menu flag inside of UI to decide how to handle the request...
 #define UI_SelectNumber 9
 #define UI_SelectString 10
 
 #define UI_SetDeferredMode 11
-	// Command to set/clear deferred dance mode from the chat interface
+    // Command to set/clear deferred dance mode from the chat interface
 #define UI_ShowAll 12
-	// Command to show whatever the UI is thinking (for chat help show all command)
+    // Command to show whatever the UI is thinking (for chat help show all command)
+#define UI_EndUpdate 13
+    // Update has ended - so re-enable the UI
 #define UI_RememberSequence 14
-	// Chat command takes in a sequence and we send it to 'Read' to get parsed and sent to the current user menu
+    // Chat command takes in a sequence and we send it to 'Read' to get parsed and sent to the current user menu
 #define UI_SetDanceSelection 15
-	// Set the dance selection flag (0=all (or just next), 1=random)
+    // Set the dance selection flag (0=all (or just next), 1=random)
 #define UI_SelectNextDance 16
-	// How do we get the next dance? Dance control asks the UI to send the correct menu the get next dance request with the appropriate flag
+    // How do we get the next dance? Dance control asks the UI to send the correct menu the get next dance request with the appropriate flag
 #define UI_ShowMenuSequences 17
-	// Show a list of all the sequences on a menu
+    // Show a list of all the sequences on a menu
 #define UI_SelectUserMenu 18
-	// This selects the user menu to return to - it does NOT change the menu displayed on the screen
-	//  this call is used from the admin menu - so that we can set the menu to record freestyle to - or load sequence notecards
+    // This selects the user menu to return to - it does NOT change the menu displayed on the screen
+    //  this call is used from the admin menu - so that we can set the menu to record freestyle to - or load sequence notecards
 #define UI_SetTheme 19
-	// Calls in with the texture and colors to use - simply remember repaint all the prims
+    // Calls in with the texture - simply remember repaint all the prims
+#define UI_SetTransparency 20
+    // Calls in with a % transparency (0 to 100)
 
 
-	// Extra flags for dance keyword
+    // Extra flags for dance keyword
 #define Define_DanceStart 1
 #define Define_DanceStop 2
 
 // Define the possible groups for multicast - these are the bits we use for everyone and the string definitions in the dance sequences
+#ifdef NEED_GROUP_NAMES
 list Define_GroupNames=  ["ALL", "FEMALE","MALE","LEAD", "LEFT","CENTER","RIGHT","GROUP1","GROUP2","GROUP3","GROUP4","GROUP5"  ];
 list Define_GroupBits=   [ 1,     2,       4,     8,     16,      32,     64,      128,     256,     512,     1024,     2048   ];
 list Define_GroupAliases=[ "|",   "|",     "|",   "|",   "|",     "|",    "|",     "|",     "|",     "|",     "|",      "|"    ];
+#endif
 #define Define_GroupAllIndex 0
 #define Define_GroupAllBits 1
 
 
 
 #define Define_DefaultFreeStyleName "FreeStyle "
-	// This is the default name we use for a freestyle dance that was added (via the record button)
+    // This is the default name we use for a freestyle dance that was added (via the record button)
 
 
 // Define the commands for the debug script
 #define Debug_ShowSequence 1
-	// Takes (2)|sequencename   (key)sequence  - displays to owner only
-	// Define the commands to the debug script
+    // Takes (2)|sequencename   (key)sequence  - displays to owner only
+    // Define the commands to the debug script
 #define Debug_StartCapture 2
 #define Debug_StopCapture 3
 #define Debug_PrintOn 4
 #define Debug_PrintOff 5
 #define Debug_ShowCaptured 6
 #define Debug_SomethingCompleted 7
-	// This is to instrument various support routines so that we can turn on debugging tracing and see messages when something completes
-	// Good for the test harness to know when non-message items are completed - so we can scatter these commands through the system and
-	// know that the unit tests hit special non-message conditions. We just make sure that each completed item has a unique identification
-	// string which looks like:ModuleName:Function:msg#1  - so FSRead:Something:1 - indicates the first non-message completion in function
-	// Something of module FSRead. Very handy for unit tests to catch these cases. Not for release bits - but could be used in cases
-	// where I can't reproduce a bug - optionally - there is a key with additional data for the point where we sent this debug msg.
+    // This is to instrument various support routines so that we can turn on debugging tracing and see messages when something completes
+    // Good for the test harness to know when non-message items are completed - so we can scatter these commands through the system and
+    // know that the unit tests hit special non-message conditions. We just make sure that each completed item has a unique identification
+    // string which looks like:ModuleName:Function:msg#1  - so FSRead:Something:1 - indicates the first non-message completion in function
+    // Something of module FSRead. Very handy for unit tests to catch these cases. Not for release bits - but could be used in cases
+    // where I can't reproduce a bug - optionally - there is a key with additional data for the point where we sent this debug msg.
 
 
 // Define the commands for the prepare script
@@ -185,53 +194,71 @@ list Define_GroupAliases=[ "|",   "|",     "|",   "|",   "|",     "|",    "|",  
 
 // Define macros to wrap messages to be sent - looks cleaner this way (dislike it though) - but makes ALL of the messages public
 // Messages to ALL scripts
-#define MessageReset()   llMessageLinked(LINK_THIS, 0, "RESET", (key) "")
-#define MessageResetSpecific(linkid)   llMessageLinked(LINK_THIS, linkid, "RESET", (key) "")
+#define MessageReset()   llMessageLinked(LINK_THIS, 0, "RESET", "")
+#define MessageResetSpecific(linkid)   llMessageLinked(LINK_THIS, linkid, "RESET", "")
 
 // Messages for Prepare
-#define MessagePrepareSequence(linkid, fromLinkId, seqname, replystring, sequence) llMessageLinked(LINK_THIS, Define_PREPARELINKID, llDumpList2String([Prepare_PrepareSequence,seqname,linkid,replystring,fromLinkId],"|"), (key) sequence)
+#define MessagePrepareSequence(linkid, fromLinkId, seqname, replystring, sequence) llMessageLinked(LINK_THIS, Define_PREPARELINKID, llDumpList2String([Prepare_PrepareSequence,seqname,linkid,replystring,fromLinkId],"|"), sequence)
 
 // Messages that are specific to MenuList
-#define MessageAddFreestyle(linkid, sequence)	llMessageLinked(LINK_THIS, linkid, (string)List_AddFreestyle, (key) llDumpList2String(remembered, "|||"))
+#define MessageAddFreestyle(linkid, sequence)    llMessageLinked(LINK_THIS, linkid, (string)List_AddFreestyle, llDumpList2String(sequence, "|||"))
 
 // Messages to User Interface
-#define MessageNotecardLoaded(notecard)	llMessageLinked(LINK_THIS, Define_UILINKID,  "LOADED", (key) notecard)
-#define MessageReturnToUserMenu()	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_ReturnToUserMenu, (key) "")
-#define MessageGoToMenu(linkid)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_GoToMenu, (key) ((string)linkid))
-#define MessageStartedSequence(name,linkid)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_StartedSequence, (key) llDumpList2String([name,linkid],"|"))
-#define MessageSetRecordingSequences(flag)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_RecordingSequences, (key)((string) flag))
-#define MessageStartNotecardLoad(notecard)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_LoadNotecard, (key) notecard)
-	// Since the UI knows what user menu is current - we send the load notecard to it so that it can send out the load to READ with the correct user menu linkid
-#define MessageScrollMenu(directionFlag)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_ScrollMenu, (key) ((string)directionFlag))
-#define MessageSetHUDMode(modeFlag,superStop)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SetMode, (key) llDumpList2String([modeFlag,superStop],"|"))
-#define MessageUISelect(item)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SelectNumber, (key) ((string)item))
-#define MessageUISelectString(item)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SelectString, (key) item)
-#define MessageUISetDeferredDancing(item)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SetDeferredMode, (key) ((string)item))
-#define MessageUIShowAll()	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_ShowAll, (key) "")
-#define MessageUIRemember(seq)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_RememberSequence, (key)seq)
-#define MessageUISetDanceSelection(flag)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SetDanceSelection, (key)((string)flag))
-#define MessageUISelectNextDance()	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SelectNextDance, (key)"")
-#define MessageUIShowMenuSequences()	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_ShowMenuSequences, (key)"")
-#define MessageUISelectUserMenu(menuLinkid)	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SelectUserMenu, (key)((string)menuLinkid))
-#define MessageUISetTheme(texture,textnormal,texthilite,backcolor,textalpha,texthialpha,backalpha) 	\
-	llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SetTheme, llDumpList2String([texture,textnormal,texthilite,backcolor,textalpha,texthialpha,backalpha],"|"))
+#define MessageNotecardLoaded(notecard)    llMessageLinked(LINK_THIS, Define_UILINKID,  "LOADED", notecard)
+#define MessageReturnToUserMenu()    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_ReturnToUserMenu, "")
+#define MessageGoToMenu(linkid)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_GoToMenu, (string)linkid)
+#define MessageStartedSequence(name,linkid)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_StartedSequence, name+"|"+(string)linkid)
+#define MessageSetRecordingSequences(flag)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_RecordingSequences, (string) flag)
+#define MessageStartNotecardLoad(notecard)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_LoadNotecard, notecard)
+    // Since the UI knows what user menu is current - we send the load notecard to it so that it can send out the load to READ with the correct user menu linkid
+#define MessageScrollMenu(directionFlag)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_ScrollMenu, (string)directionFlag)
+#define MessageSetHUDMode(modeFlag,superStop)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SetMode, (string)modeFlag + "|" + (string)superStop)
+#define MessageUISelect(item)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SelectNumber, (string)item)
+#define MessageUISelectString(item)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SelectString, item)
+#define MessageUISetDeferredDancing(item)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SetDeferredMode, (string)item)
 
+#define MessageUIShowAll()    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_ShowAll, "")
+#define MessageUIRemember(seq)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_RememberSequence, seq)
+#define MessageUISetDanceSelection(flag)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SetDanceSelection, (string)flag)
+#define MessageUISelectNextDance()    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SelectNextDance, "")
+#define MessageUIShowMenuSequences()    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_ShowMenuSequences, "")
+#define MessageUISelectUserMenu(menuLinkid)    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SelectUserMenu, (string)menuLinkid)
+#define MessageUISetTheme(texture)     \
+    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SetTheme, texture)
+#define MessageUISetTransparency(transparencyPercent)     \
+    llMessageLinked(LINK_THIS, Define_UILINKID, (string)UI_SetTransparency, transparencyPercent)
 
+#ifdef BUILD_FOR_OPENSIM
+// Messages from keepalive script to keep all other scripts alive...
+#define MessageKeepAlive()   llMessageLinked(LINK_THIS, Define_KEEPALIVELINKID, "", "")
+#endif
 
 // Messages to AO
-#define MessageLoadAONotecard(notecard)	llMessageLinked(LINK_THIS, Define_AOLINKID, llDumpList2String(["ZHAO_LOAD",notecard],"|"), (key) "")
-#define MessageTurnOffAO()   llMessageLinked(LINK_THIS, Define_AOLINKID, "ZHAO_AOOFF", (key) "")
-#define MessageTurnOnAO()   llMessageLinked(LINK_THIS, Define_AOLINKID, "ZHAO_AOON", (key) "")
+#define MessageLoadAONotecard(notecard)    llMessageLinked(LINK_THIS, Define_AOLINKID, "ZHAO_LOAD" + "|"+notecard, "")
+#define MessageTurnOffAO()   llMessageLinked(LINK_THIS, Define_AOLINKID, "ZHAO_AOOFF", "")
+#define MessageTurnOnAO()   llMessageLinked(LINK_THIS, Define_AOLINKID, "ZHAO_AOON", "")
 
 // Messages to debug
-#define MessageDebug(command)	llMessageLinked(LINK_THIS, Define_DEBUGMSGLINKID, (string)command, (key) "")
-#define MessageShowSequenceDebug(name, sequence)	llMessageLinked(LINK_THIS, Define_DEBUGMSGLINKID, llDumpList2String([Debug_ShowSequence,name],"|"), (key) sequence)
+#define MessageDebug(command)    llMessageLinked(LINK_THIS, Define_DEBUGMSGLINKID, (string)command, "")
+#define MessageShowSequenceDebug(name, sequence)    llMessageLinked(LINK_THIS, Define_DEBUGMSGLINKID, (string)Debug_ShowSequence + "|"+ name, sequence)
 
 // Trace facility for non-message handling routines to be unit tested...
 #ifdef UNIT_TEST_TRACING
-#define Trace(a,b)	llMessageLinked(LINK_THIS, Define_DEBUGMSGLINKID, MODULE+(string)a, (key)(b));
+#define Trace(a,b)    ; llMessageLinked(LINK_THIS, Define_DEBUGMSGLINKID, MODULE+(string)a, (key)(b));
 #else
-#define Trace(a,b)
+#define Trace(a,b) ;
 #endif
+
+// Messages to product only handling (i.e. no product code other than in FSProduct)
+#define MessageDisplayProductRev()    llMessageLinked(LINK_THIS, Define_PRODUCTLINKID, "show", "")
+
+// Optimization for checking for -1 (using twos compliement check   ~(-1) is 0!  :)
+// Does not work on opensim... sigh...
+#define CheckEqMinusOne(arg) (arg == -1)
+#define CheckNeqMinusOne(arg) (arg != -1)
+
+// Optimization for checking for zero - simple... easy... (no more (i == 0) checking...)
+#define CheckEqZero(arg) (arg == 0)
+#define CheckNeqZero(arg) (arg != 0)
 
 #endif

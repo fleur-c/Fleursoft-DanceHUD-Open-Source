@@ -1,3 +1,5 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
 // Language module - we have support for different languages. The essential part
 //  is this module. We read all the error strings on startup (from ~FSErrors) and
 //  store them into two lists - one with names (MSG:N2) and one with the messages.
@@ -14,7 +16,7 @@
 
 list Keys = [];
 list Messages = [];
-list lookUsUp = [];		// Messages from while loading (can't display until we LOAD the messages first)
+list lookUsUp = [];        // Messages from while loading (can't display until we LOAD the messages first)
 integer line = 0;
 key readLineId = NULL_KEY;
 integer loadingMsgs = FALSE;
@@ -24,149 +26,169 @@ integer loadingMsgs = FALSE;
 // very handy for when we added a new dancer and want to tell them the chat channel they have for commands.
 OwnerSay(string errorCode, list params)
 {
-	// Take an error message # and display it to the owner with string substitution (up to 9 different substitions)
-	// The error message is the error code and the list are the parameters (as strings) that we do substitutions with...
-	integer paramCount;
-	list msgParts;
-	integer msgLength;
-	string item;
-	list numberCheck=["1","2","3","4","5","6","7","8","9"];
-	integer i;
-	integer j;
-	integer k;
-	string messageOut;
-	key sendTo = "";
-		
-	paramCount = llGetListLength(params);
+    // Take an error message # and display it to the owner with string substitution (up to 9 different substitutions)
+    // The error message is the error code and the list are the parameters (as strings) that we do substitutions with...
+    integer paramCount;
+    list msgParts;
+    integer msgLength;
+    string item;
+    list numberCheck=["1","2","3","4","5","6","7","8","9"];
+    integer i;
+    integer j;
+    integer k;
+    string messageOut;
+    key sendTo = "";
+        
+    paramCount = llGetListLength(params);
 
-	msgParts = llParseString2List(errorCode, ["|"],[]);
-	if (llGetListLength(msgParts) > 1)
-		sendTo = llList2Key(msgParts,1);
+    msgParts = llParseString2List(errorCode, ["|"],[]);
+    if (llGetListLength(msgParts) > 1)
+    {
+        sendTo = llList2Key(msgParts,1);
+    }
 
-	i = llListFindList(Keys, [llList2String(msgParts,0)]);
-	if (i != -1)
-	{
-		messageOut = llList2String(Messages, i);
-		msgParts = llParseStringKeepNulls(messageOut, ["&"], []);
-		msgLength = llGetListLength(msgParts);
-		messageOut = llList2String(msgParts, 0);
+    i = llListFindList(Keys, [llList2String(msgParts,0)]);
+    if (CheckNeqMinusOne(i))
+    {
+        messageOut = llList2String(Messages, i);
+        msgParts = llParseStringKeepNulls(messageOut, ["&"], []);
+        msgLength = llGetListLength(msgParts);
+        messageOut = llList2String(msgParts, 0);
 
-		for (i=1; i < msgLength; ++i)
-		{
-			item = llList2String(msgParts, i);
-			k = llStringLength(item);
-			if (k > 0)
-			{
-				j = llListFindList(numberCheck, [llGetSubString(item, 0, 0)]);
-				if (j != -1)
-				{
-					if (j < paramCount)
-					{
-						if (k > 1)
-							messageOut = AppendToString(messageOut, llList2String(params, j) + llGetSubString(item, 1, -1));
-						else
-							messageOut = AppendToString(messageOut, llList2String(params, j));
-					}
-					else
-					{
-						// Error - parameter # is in error message, but not passed in as parameter... eeps  'missing parameter'
-						messageOut = AppendToString(messageOut, "(missing parameter number "+(string)j+") &"+item);
-					}
-				}
-				else
-				{
-					// Not a substitution - there was an '&something' that wasn't '&1' to '&9' - so just pass it on through...
-					messageOut = AppendToString(messageOut, "&"+item);
-				}
-			}
-		}
-		if (sendTo == "")
-		{
-			llOwnerSay(messageOut);
-			Trace("Say",messageOut)
-		}
-		else
-		{
-			llInstantMessage(sendTo, messageOut);
-			Trace("IM",messageOut)
-		}			
-	}
-	else
-		llOwnerSay("Error - unknown error message code:"+errorCode);
+        for (i=1; i < msgLength; ++i)
+        {
+            item = llList2String(msgParts, i);
+            k = llStringLength(item);
+            if (k > 0)
+            {
+                j = llListFindList(numberCheck, [llGetSubString(item, 0, 0)]);
+                if (CheckNeqMinusOne(j))
+                {
+                    if (j < paramCount)
+                    {
+                        if (k > 1)
+                        {
+                            AppendToString(messageOut, llList2String(params, j) + llGetSubString(item, 1, -1));
+                        }
+                        else
+                        {
+                            AppendToString(messageOut, llList2String(params, j));
+                        }
+                    }
+                    else
+                    {
+                        // Error - parameter # is in error message, but not passed in as parameter... eeps  'missing parameter'
+                        AppendToString(messageOut, "(missing parameter number "+(string)j+") &"+item);
+                    }
+                }
+                else
+                {
+                    // Not a substitution - there was an '&something' that wasn't '&1' to '&9' - so just pass it on through...
+                    AppendToString(messageOut, "&"+item);
+                }
+            }
+        }
+        if (sendTo == "")
+        {
+            llOwnerSay(messageOut);
+            Trace("Say",messageOut)
+        }
+        else
+        {
+            llInstantMessage(sendTo, messageOut);
+            Trace("IM",messageOut)
+        }            
+    }
+    else
+    {
+        llOwnerSay("Error - unknown error message code:"+errorCode);
+    }
 }
 
 default
 {
-	state_entry()
-	{
-		if (llGetInventoryType(ErrorMsgsNotecard) == INVENTORY_NOTECARD)
-		{
-			loadingMsgs = TRUE;
-			readLineId = llGetNotecardLine(ErrorMsgsNotecard, line);
-		}
-		else
-			llOwnerSay("Error message configuration notecard '"+ErrorMsgsNotecard+"' is missing - many error messages will not make any sense.");
-	}
+    state_entry()
+    {
+        if (llGetInventoryType(ErrorMsgsNotecard) == INVENTORY_NOTECARD)
+        {
+            loadingMsgs = TRUE;
+            readLineId = llGetNotecardLine(ErrorMsgsNotecard, line);
+        }
+        else
+        {
+            llOwnerSay("Error message configuration notecard '"+ErrorMsgsNotecard+"' is missing - many error messages will not make any sense.");
+        }
+    }
 
-	// Link messages can receive two strings - the key is a special flavor of string
-	//  that if we just typecast correctly, we can pass two strings just fine.
-	link_message(integer sender_num, integer num, string str, key id)
-	{
-		// If the script was reset, then make sure that EVERYTHING has been reset
-		if ((num == 0) && (str == "RESET"))
-		{
-			llResetScript();
-		}
+    changed(integer flag)
+    {
+        if (flag & CHANGED_OWNER)
+            llResetScript();
+    }
 
-		if (num == Define_LANGUAGELINKID)
-		{
-			if (loadingMsgs)
-				lookUsUp = AppendStringToList(lookUsUp, llDumpList2String([str, (string)id], "|"));
-			else
-				OwnerSay(str, llParseString2List((string)id, ["|"], []));
-		}
-	}
+    // Link messages can receive two strings - the key is a special flavor of string
+    //  that if we just typecast correctly, we can pass two strings just fine.
+    link_message(integer sender_num, integer num, string str, key id)
+    {
+        // If the script was reset, then make sure that EVERYTHING has been reset
+        if (CheckEqZero(num) && (str == "RESET"))
+        {
+            llResetScript();
+        }
 
-		// Very simple data server - just read a line till the end of the file - first word is the error key, the rest is the error message
-		//  Save the error message and key for later.
-	dataserver(key request_id, string data)
-	{
-		if(request_id == readLineId)
-		{
-			if (data != EOF)
-			{
-				list p = llParseStringKeepNulls(data, [" "],[]);
-				if (llGetListLength(p) > 0)
-				{
-					Keys = AppendStringToList(Keys, llList2String(p,0));
-					p = DeleteListEntry(p,0);
-					Messages = AppendStringToList(Messages, llDumpList2String(p, " "));
-					++line;
-					readLineId = llGetNotecardLine(ErrorMsgsNotecard, line);	
-				}
-			}
-			else
-			{
-				loadingMsgs = FALSE;
-				
-				// Once we are done loading error messages - then it's time for us to display ANY messages that have
-				//  come in WHILE we were loading the error messages (I am sick and tired of 'unknown error message XYZZY')
-				//  and as long as the error messages are defined - this will work great.
-				if (lookUsUp != [])
-				{
-					integer i;
-					list p;
-					string str;
-					for (i=0; i < llGetListLength(lookUsUp); ++i)
-					{
-						p = llParseString2List(llList2String(lookUsUp, i), ["|"], []);
-						str = llList2String(p, 0);
-						p = DeleteListEntry(p, 0);
-						OwnerSay(str, p);
-					}
-				}
-			}
-		}
-	}
+        if (num == Define_LANGUAGELINKID)
+        {
+            if (loadingMsgs)
+            {
+                AppendStringToList(lookUsUp, str + "|" + (string)id);
+            }
+            else
+            {
+                OwnerSay(str, llParseString2List((string)id, ["|"], []));
+            }
+        }
+    }
+
+        // Very simple data server - just read a line till the end of the file - first word is the error key, the rest is the error message
+        //  Save the error message and key for later.
+    dataserver(key request_id, string data)
+    {
+        list p;
+        if(request_id == readLineId)
+        {
+            if (data != EOF)
+            {
+                p = llParseStringKeepNulls(data, [" "],[]);
+                if (llGetListLength(p) > 0)
+                {
+                    AppendStringToList(Keys, llList2String(p,0));
+                    p = DeleteListEntry(p,0);
+                    AppendStringToList(Messages, llDumpList2String(p, " "));
+                    ++line;
+                    readLineId = llGetNotecardLine(ErrorMsgsNotecard, line);    
+                }
+            }
+            else
+            {
+                loadingMsgs = FALSE;
+                
+                // Once we are done loading error messages - then it's time for us to display ANY messages that have
+                //  come in WHILE we were loading the error messages (I am sick and tired of 'unknown error message XYZZY')
+                //  and as long as the error messages are defined - this will work great.
+                if (lookUsUp != [])
+                {
+                    integer i;
+                    string str;
+                    for (i=0; i < llGetListLength(lookUsUp); ++i)
+                    {
+                        p = llParseString2List(llList2String(lookUsUp, i), ["|"], []);
+                        str = llList2String(p, 0);
+                        p = DeleteListEntry(p, 0);
+                        OwnerSay(str, p);
+                    }
+                }
+            }
+        }
+    }
 }
 

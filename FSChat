@@ -1,5 +1,5 @@
-// Starting over again with chat commands - we want a very small simple parser
-//
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
 // The plan is to make this module only do chat and nothing else. Everything else
 // is done another place. We just take commands in, parse them and send them along.
 // This script is for the owner only - NOT any other command. Each dancer has their own
@@ -26,7 +26,8 @@
 #include "Utility"
 #include "UtilOwnerSay"
 
-	// List of chat commands - and minimum uniqueness too - we use macros as there is only a single reference to these lists
+
+    // List of chat commands - and minimum uniqueness too - we use macros as there is only a single reference to these lists
 #define ownerChatCmds [ \
  "D", "DANCE", "N", \
  "DEBUG", \
@@ -46,7 +47,7 @@
  "SYNC", "S", \
  "WAIT", "W" ]
 
-	// List of what the command number for each of the chat commands are (MUST be in the same order as ownerChatCmds)
+    // List of what the command number for each of the chat commands are (MUST be in the same order as ownerChatCmds)
 #define ownerChatCmdNumbers [ \
  Define_CmdDance, Define_CmdDance, Define_CmdDance, \
  Define_CmdDebug, \
@@ -66,49 +67,48 @@
  Define_CmdSync, Define_CmdSync, \
  Define_CmdWait, Define_CmdWait ]
 
-	// Text to explain each command in the help menu
+    // Text to explain each command in the help menu
 #define ownerHelpExplain [ \
-	" DANCENAME or #3 - start dancing DANCENAME or dance #3", \
-	" DANCENAME or #3 - same as DANCE command", \
-	" DANCENAME or #3 - same as DANCE command", \
-	" [START|ON|STOP|OFF|PRINT|PRINTOFF|SHOW] - change debugging settings (handy for Fleur to find problems)", \
-	" - toggle deferred freestyle dance mode on or off", \
-	" # - set the default dance duration (only useful in All or Random dance selection)", \
-	" # - same as DEFAULTDURATION", \
-	" - function key command - handy for toggling between menus or scripting something (see website for more details)", \
-	" - same as FKEY command", \
-	" itemName - Give the itemName from DanceHUD inventory to all of the current dancers", \
-	" - This helpful message", \
-	" - same as HELP command", \
-	" - same as HELP command", \
-	" [ANIMATIONS|A|DANCES|D] - list all the animations or list the dance sequences of the current menu", \
-	" - same as the LIST command", \
-	" [1-10|INVENTORY|I|ADMIN|A] - set menu to user menu 1 through 10 or inventory(I or INVENTORY) or administrative(A or ADMIN)", \
-	" - same as MENU command", \
-	" [OFF|ON|DANCE|DANCING|D|AO] - set mode to off, dancing (ON,DANCE,DANCING or D) or animation override", \
-	" - Completely reset every script", \
-	" - same as RESET command", \
-	" <sequence> - handy for adding a sequence to a menu dynamically", \
-	" # - set number of possible dancers to # (need to have that many ~FS Dancer scripts in the HUD)", \
-	" - same as SETDANCERS", \
-	" # - set the chat channel for the HUD to listen to for chat commands", \
-	" - same as SETCHANNEL", \
-	" - Stop dancing and start a wait sequence (also stops AO and starts a wait sequence)", \
-	" - Synchronize all the dancers to the last major animation started", \
-	" - Same as SYNC command", \
-	" - Start a wait sequence", \
-	" - Same as WAIT command" \
+    " DANCENAME or #3 - start dancing DANCENAME or dance #3", \
+    " DANCENAME or #3 - same as DANCE command", \
+    " DANCENAME or #3 - same as DANCE command", \
+    " [START|ON|STOP|OFF|PRINT|PRINTOFF|SHOW] - change debugging settings (handy for Fleur to find problems)", \
+    " - toggle deferred freestyle dance mode on or off", \
+    " # - set the default dance duration (only useful in All or Random dance selection)", \
+    " # - same as DEFAULTDURATION", \
+    " - function key command - handy for toggling between menus or scripting something (see website for more details)", \
+    " - same as FKEY command", \
+    " itemName - Give the itemName from DanceHUD inventory to all of the current dancers", \
+    " - This helpful message", \
+    " - same as HELP command", \
+    " - same as HELP command", \
+    " [ANIMATIONS|A|DANCES|D] - list all the animations or list the dance sequences of the current menu", \
+    " - same as the LIST command", \
+    " [1-10|INVENTORY|I|ADMIN|A] - set menu to user menu 1 through 10 or inventory(I or INVENTORY) or administrative(A or ADMIN)", \
+    " - same as MENU command", \
+    " [OFF|ON|DANCE|DANCING|D|AO] - set mode to off, dancing (ON,DANCE,DANCING or D) or animation override", \
+    " - Completely reset every script", \
+    " - same as RESET command", \
+    " <sequence> - handy for adding a sequence to a menu dynamically", \
+    " # - set number of possible dancers to # (need to have that many ~FS Dancer scripts in the HUD)", \
+    " - same as SETDANCERS", \
+    " # - set the chat channel for the HUD to listen to for chat commands", \
+    " - same as SETCHANNEL", \
+    " - Stop dancing and start a wait sequence (also stops AO and starts a wait sequence)", \
+    " - Synchronize all the dancers to the last major animation started", \
+    " - Same as SYNC command", \
+    " - Start a wait sequence", \
+    " - Same as WAIT command" \
 ]
-	
  
- 	// List of help commands (from the help menu) - in dialog button order... (sigh) so it shows up as 1 (space) (space) 2 3 4  - change order as needed...
+     // List of help commands (from the help menu) - in dialog button order... (sigh) so it shows up as 1 (space) (space) 2 3 4  - change order as needed...
 #define ownerHelpCmds [ \
   "#2", \
   "#3", \
   "#4", \
   "#1" ]
  
-	// List of the command number for each help command (from dialog or chat)
+    // List of the command number for each help command (from dialog or chat)
 #define ownerHelpCmdsNumbers [ \
   Define_Help2, \
   Define_Help3, \
@@ -118,25 +118,25 @@
 
 
 // Globals
-integer listenChannel = Define_DefaultChannel;	// What is the user settable channel we listen on?
-integer listenHandle = 0;			// Handle for user changeable channel - default 99
-integer emergencyListenHandle = 0;	// Handle for channel 121234 - emergancy chat channel
-key ownerKey = NULL_KEY;			// Who is the owner (so we can get reset on change owner)
-integer helpDialog = FALSE;			// True when the help dialog was up (so the next chat command will be a help command, via a button or typed)
-list fkeyCounts = [];				// List of values for # of times each fkey has been pushed (for the fkey commands)
+integer listenChannel = Define_DefaultChannel;    // What is the user settable channel we listen on?
+integer listenHandle = 0;               // Handle for user changeable channel - default 99
+integer emergencyListenHandle = 0;      // Handle for channel 121234 - emergancy chat channel
+key ownerKey = NULL_KEY;                // Who is the owner (so we can get reset on change owner)
+integer helpDialog = FALSE;             // True when the help dialog was up (so the next chat command will be a help command, via a button or typed)
+list fkeyCounts = [];                   // List of values for # of times each fkey has been pushed (for the fkey commands)
 
 // globals for 'loading animations...'
-list loadingItems = [];				// List of menu items for when we refresh the user menu of 'loading animations...'
-list dancerLinkids = [];			// List of linkid's to each dancer we use to load more animations...
-integer numDancers = 0;				// Number of dancers we have (while loading the animations quickly)
-integer numAnims = 0;				// How many animations are there to be loaded quickly?
-integer animIndex = 0;				// Where are we in the loading of all animations quickly?
-float loadAnimsStart = 0.0;			// When did we start loading the animations? (want to know duration of loading them...)
+list loadingItems = [];                 // List of menu items for when we refresh the user menu of 'loading animations...'
+list dancerLinkids = [];                // List of linkid's to each dancer we use to load more animations...
+integer numDancers = 0;                 // Number of dancers we have (while loading the animations quickly)
+integer numAnims = 0;                   // How many animations are there to be loaded quickly?
+integer animIndex = 0;                  // Where are we in the loading of all animations quickly?
+float loadAnimsStart = 0.0;             // When did we start loading the animations? (want to know duration of loading them...)
 
 // Transient variables
-integer i;
-integer j;
-list p;
+integer tempInt1;
+integer tempInt2;
+list tempList1;
 string tmp;
 
 
@@ -144,368 +144,400 @@ string tmp;
 // Each menu is responsible for ensuring that we can 'select' or 'dance' that command/option.
 DoSelect()
 {
-	// We don't know what's on the menu - so we get the # of the select and just send it to the menu link id
-	// But we only take command numbers > 0 - anything else isn't a select command (don't know the upper
-	// limit as we don't know what is on the menu)
-	i = (integer) llStringTrim(llGetSubString(tmp,1,-1),STRING_TRIM);
-	MessageUISelect(i);
+    // We don't know what's on the menu - so we get the # of the select and just send it to the menu link id
+    // But we only take command numbers > 0 - anything else isn't a select command (don't know the upper
+    // limit as we don't know what is on the menu)
+    tempInt1 = (integer) llStringTrim(llGetSubString(tmp,1,-1),STRING_TRIM);
+    MessageUISelect(tempInt1);
 }
 
-DoHelp()
+DoHelp0()
 {
-	helpDialog = TRUE;
-	llDialog(llGetOwner(), "How can I help?\n#1) Get HUD on screen\n#2) Show me everything\n#3) Stop everything\n#4) Reset", ownerHelpCmds, listenChannel);
-	return;
+    helpDialog = TRUE;
+    llDialog(llGetOwner(), "How can I help?\n#1) Get HUD on screen\n#2) Show me everything\n#3) Stop everything\n#4) Reset", ownerHelpCmds, listenChannel);
+    return;
 }
 
 // Recenter HUD
 DoHelp1()
 {
-	MessageRecenterHUD();
+    MessageRecenterHUD();
 }
 
 // Show everything
 DoHelp2()
 {
-	llOwnerSay("The chat commands are:");
-	for (i = 0; i < llGetListLength(ownerChatCmdNumbers); ++i)
-		llOwnerSay("    "+llList2String(ownerChatCmds,i)+llList2String(ownerHelpExplain,i));
-	
-	llOwnerSay("Listening for commands on channel:"+(string)listenChannel);
-	llOwnerSay("Listening for commands on emergency channel:"+(string)Define_EmergencyListenNumber+" (which can not be changed)");
-	MessageUIShowAll();
+    llOwnerSay("The chat commands are:");
+    for (tempInt1 = 0; tempInt1 < llGetListLength(ownerChatCmdNumbers); ++tempInt1)
+    {
+        llOwnerSay("    "+llList2String(ownerChatCmds,tempInt1)+llList2String(ownerHelpExplain,tempInt1));
+    }
+    
+    llOwnerSay("Listening for commands on channel:"+(string)listenChannel);
+    llOwnerSay("Listening for commands on emergency channel:"+(string)Define_EmergencyListenNumber+" (which can not be changed)");
+    MessageUIShowAll();
 }
 
 // Stop everything
 DoHelp3()
 {
-	MessageSetHUDMode(Mode_Off, TRUE);	// Super stop mode
+    MessageSetHUDMode(Mode_Off, TRUE);    // Super stop mode
 }
 
 // Simply list all of the animations in the inventory (can add options later for more specific lists)
 DoList()
 {
-	integer count;
+    integer count;
 
-	i = llListFindList(["ANIMATIONS", "A", "DANCES", "D"], [ llToUpper(tmp) ]);
-	if (i == -1)
-	{
-		i = 0;	// If we do NOT find the parameter, we list the animations - not so wonderful as they could have provided another input...
-	}
-	j = llList2Integer([ ListAnimations, ListAnimations, ListDances, ListDances ], i);
-	if (j == ListAnimations)
-	{
-		// Get and print a list of inventory animations
-		j = llGetInventoryNumber(INVENTORY_ANIMATION);
-		count = 0;
-		for (i = 0; i < j; ++i)
-		{
-			tmp = llGetInventoryName(INVENTORY_ANIMATION, i);
-			count ++;
-			p = AppendStringToList(p, tmp);
-			if (count >= 15)	// (1024) / (64+"\n") is 15... 1023 max string to say, 64 max length of item name in inventory 
-			{
-				llOwnerSay(llDumpList2String(p,"\n"));
-				p = [];
-			}
-		}
-		if (count > 0)
-		{
-			llOwnerSay(llDumpList2String(p,"\n"));
-			p = [];
-		}
-		llOwnerSay((string)j+" animations in inventory");
-	}
-	else
-		MessageUIShowMenuSequences();
+    tempInt1 = llListFindList(["ANIMATIONS", "A", "DANCES", "D"], [ llToUpper(tmp) ]);
+    if (CheckEqMinusOne(tempInt1))
+    {
+        tempInt1 = 0;    // If we do NOT find the parameter, we list the animations - not so wonderful as they could have provided another input...
+    }
+    tempInt2 = llList2Integer([ ListAnimations, ListAnimations, ListDances, ListDances ], tempInt1);
+    if (tempInt2 == ListAnimations)
+    {
+        // Get and print a list of inventory animations
+        tempInt2 = llGetInventoryNumber(INVENTORY_ANIMATION);
+        count = 0;
+        for (tempInt1 = 0; tempInt1 < tempInt2; ++tempInt1)
+        {
+            tmp = llGetInventoryName(INVENTORY_ANIMATION, tempInt1);
+            ++count;
+            AppendStringToList(tempList1, tmp);
+            if (count >= 15)    // (1024) / (64+"\n") is 15... 1023 max string to say, 64 max length of item name in inventory 
+            {
+                llOwnerSay(llDumpList2String(tempList1,"\n"));
+                tempList1= [];
+            }
+        }
+        if (count > 0)
+        {
+            llOwnerSay(llDumpList2String(tempList1,"\n"));
+            tempList1 = [];
+        }
+        llOwnerSay((string)tempInt2+" animations in inventory");
+    }
+    else
+    {
+        MessageUIShowMenuSequences();
+    }
 }
 
 DoMenu()
 {
-	j = -1;	// Indicate no menu selected on this command
-	i = (integer) tmp;
-	if ((i >= 1) && (i <= Define_MaxMenuNumber))
-	{
-		j = Define_MENULISTLINKID+i;
-	}
-	else
-	{
-		i = llListFindList(["INVENTORY", "I", "ADMIN", "A" ], [ llToUpper(tmp) ]);
-		if (i != -1)
-		{
-			j = llList2Integer([ Define_INVENTORYANIMLINKID, Define_INVENTORYANIMLINKID, Define_ADMINLINKID, Define_ADMINLINKID ], i);
-		}
-	}
+    tempInt2 = -1;    // Indicate no menu selected on this command
+    tempInt1 = (integer) tmp;
+    if ((tempInt1 >= 1) & (tempInt1 <= Define_MaxMenuNumber))
+    {
+        tempInt2 = Define_MENULISTLINKID+tempInt1;
+    }
+    else
+    {
+        tempInt1 = llListFindList(["INVENTORY", "I", "ADMIN", "A" ], [ llToUpper(tmp) ]);
+        if (CheckNeqMinusOne(tempInt1))
+        {
+            tempInt2 = llList2Integer([ Define_INVENTORYANIMLINKID, Define_INVENTORYANIMLINKID, Define_ADMINLINKID, Define_ADMINLINKID ], tempInt1);
+        }
+    }
 
-	if (j != -1)
-		MessageGoToMenu(j);
-	else
-		OwnerSay("CMSG002", [tmp, (string)Define_MaxMenuNumber ]);	
+    if (CheckNeqMinusOne(tempInt2))
+    {
+        MessageGoToMenu(tempInt2);
+    }
+    else
+    {
+        OwnerSay("CMSG002", [tmp, (string)Define_MaxMenuNumber ]);
+    }
 }
 
 DoMode()
 {
-	j = llListFindList(["OFF", "ON", "DANCE", "DANCING", "D", "AO"], [ llToUpper(tmp) ]);
-	if (j != -1)
-	{
-		j = llList2Integer([Mode_Off, Mode_Dancing, Mode_Dancing, Mode_Dancing, Mode_Dancing, Mode_AO], j);
-		MessageSetHUDMode(j, FALSE);
-	}
-	else
-		OwnerSay("CMSG007", [ tmp ]);
+    tempInt2 = llListFindList(["OFF", "ON", "DANCE", "DANCING", "D", "AO"], [ llToUpper(tmp) ]);
+    if (CheckNeqMinusOne(tempInt2))
+    {
+        tempInt2 = llList2Integer([Mode_Off, Mode_Dancing, Mode_Dancing, Mode_Dancing, Mode_Dancing, Mode_AO], tempInt2);
+        MessageSetHUDMode(tempInt2, FALSE);
+    }
+    else
+    {
+        OwnerSay("CMSG007", [ tmp ]);
+    }
 }
 
 ParseCommand()
 {
-	integer cmd = -1;
-	
-	// Get the first non-null command from the input (skip every null... so every leading whitespace)
-	tmp = llList2String(p,0);
-	while ((tmp == "") && (llGetListLength(p) > 0))
-	{
-		p = DeleteListEntry(p, 0);
-		tmp = llList2String(p, 0);
-	}
+    integer cmd = -1;
+    
+    // Get the first non-null command from the input (skip every null... so every leading whitespace)
+    tmp = llList2String(tempList1,0);
+    while ((tmp == "") & (llGetListLength(tempList1) > 0))
+    {
+        tempList1 = DeleteListEntry(tempList1, 0);
+        tmp = llList2String(tempList1, 0);
+    }
 
-	// If there is nothing left - then out of here...
-	if (llGetListLength(p) == 0)
-	{
-		// No command at all - weird but possible... we just ignore this and hope we don't get too many of them...
-		Trace("ParseCommand","No command at all");
-		return;
-	}
+    // If there is nothing left - then out of here...
+    if (CheckEqZero(llGetListLength(tempList1)))
+    {
+        // No command at all - weird but possible... we just ignore this and hope we don't get too many of them...
+        Trace("ParseCommand","No command at all");
+        return;
+    }
 
-	if (!helpDialog)
-	{
-		i = llListFindList(ownerChatCmds, [llToUpper(tmp)]);
-		if (i != -1)
-		{
-			cmd = llList2Integer(ownerChatCmdNumbers, i);
-			p = DeleteListEntry(p, 0);
-		}
-		else
-		{
-			if (llGetSubString(tmp,0,0) == "#")
-			{
-				tmp = llDumpList2String(p," ");
-				DoSelect();
-				return;
-			}
-		}
-	}
-	else
-	{
-		helpDialog = FALSE;
-		i = llListFindList(ownerHelpCmds, [llToUpper(tmp)]);
-		if (i != -1)
-			cmd = llList2Integer(ownerHelpCmdsNumbers, i);
-	}
+    if (!helpDialog)
+    {
+        tempInt1 = llListFindList(ownerChatCmds, [llToUpper(tmp)]);
+        if (CheckNeqMinusOne(tempInt1))
+        {
+            cmd = llList2Integer(ownerChatCmdNumbers, tempInt1);
+            tempList1 = DeleteListEntry(tempList1, 0);
+        }
+        else
+        {
+            if (llGetSubString(tmp,0,0) == "#")
+            {
+                tmp = llDumpList2String(tempList1," ");
+                DoSelect();
+                return;
+            }
+        }
+    }
+    else
+    {
+        helpDialog = FALSE;
+        tempInt1 = llListFindList(ownerHelpCmds, [llToUpper(tmp)]);
+        if (CheckNeqMinusOne(tempInt1))
+        {
+            cmd = llList2Integer(ownerHelpCmdsNumbers, tempInt1);
+        }
+    }
 
-	tmp = llStringTrim(llDumpList2String(p," "),STRING_TRIM);	
+    tmp = llStringTrim(llDumpList2String(tempList1," "),STRING_TRIM);    
 
-	// Execute commands in order of use - dancing happens more than others and so on
-	//  this is to try to boost our execution speed - every little instruction hurts...
-	if (cmd == Define_CmdDance)
-	{
-		// Dance takes either a dance name or a #<#> parameter
-		if (llGetSubString(tmp,0,0) == "#")
-		{
-			DoSelect();
-		}
-		else
-			MessageUISelectString(tmp);
-		return;
-	}
-	if (cmd == Define_CmdWait)
-	{
-		MessageGetWait(Define_DANCECONTROLLINKID);
-		return;
-	}
-	if (cmd == Define_CmdMenu)
-	{
-		DoMenu();
-		return;
-	}
-	if (cmd == Define_CmdMode)
-	{
-		DoMode();
-		return;
-	}
-	if (cmd == Define_CmdSync)
-	{
-		MessageSyncAllDancers();
-		return;
-	}
+    // Execute commands in order of use - dancing happens more than others and so on
+    //  this is to try to boost our execution speed - every little instruction hurts...
+    if (cmd == Define_CmdDance)
+    {
+        // Dance takes either a dance name or a #<#> parameter
+        if (llGetSubString(tmp,0,0) == "#")
+        {
+            DoSelect();
+        }
+        else
+        {
+            MessageUISelectString(tmp);
+        }
+        return;
+    }
+    if (cmd == Define_CmdWait)
+    {
+        MessageGetWait(Define_DANCECONTROLLINKID);
+        return;
+    }
+    if (cmd == Define_CmdMenu)
+    {
+        DoMenu();
+        return;
+    }
+    if (cmd == Define_CmdMode)
+    {
+        DoMode();
+        return;
+    }
+    if (cmd == Define_CmdSync)
+    {
+        MessageSyncAllDancers();
+        return;
+    }
 
 
-	// Function key commands are kind of fun - they are a little weird too - the idea is pretty simple.
-	//
-	//  FKEY 1 command1|command2|command3 - is the syntax. The idea is that for FKEY 1 we will execute
-	//  the first command (command1) on the first FKEY 1 command, the next time we execute the second
-	//  command (command2). Why? This is useful for function keys so that you can toggle between a couple
-	//  of different menus - could be any chat command though...
-	//
-	// How's it done? We start up and create a list of number of function keys and set each entry to 0.
-	// Then we get that entry and use it and increment the value in the list - until it wraps for the
-	// number of commands (and then we put it back into the list). And finally we interpret the command
-	// that was selected from the toggle.
-	if (cmd == Define_CmdFkey)
-	{
-		i = (integer)tmp;
-		if ((i < 1) || (i > Define_MaxFKeys))
-		{
-			OwnerSay("CMSG001", [tmp, (string) Define_MaxFKeys]);
-			return;
-		}
-		p = llParseString2List(tmp,["|"],[]);
-		j = llList2Integer(fkeyCounts, i-1);	// Get the count
-		if (++j >= llGetListLength(p))			// Bump counter and wrap it
-			j = 1;
-		tmp = llStringTrim(llList2String(p,j),STRING_TRIM);	// Get the command (skip the # of which fkey)
-		fkeyCounts = ReplaceListEntry(fkeyCounts, [ j ], i-1);	// Increment count
-		p = llParseStringKeepNulls(tmp, [" "],[]);	// Parse command into pieces...
-		Trace("ParseCommand:fkey",tmp);
-		ParseCommand();
-		return;
-	}
+    // Function key commands are kind of fun - they are a little weird too - the idea is pretty simple.
+    //
+    //  FKEY 1 command1|command2|command3 - is the syntax. The idea is that for FKEY 1 we will execute
+    //  the first command (command1) on the first FKEY 1 command, the next time we execute the second
+    //  command (command2). Why? This is useful for function keys so that you can toggle between a couple
+    //  of different menus - could be any chat command though...
+    //
+    // How's it done? We start up and create a list of number of function keys and set each entry to 0.
+    // Then we get that entry and use it and increment the value in the list - until it wraps for the
+    // number of commands (and then we put it back into the list). And finally we interpret the command
+    // that was selected from the toggle.
+    if (cmd == Define_CmdFkey)
+    {
+        tempInt1 = (integer)tmp;
+        if ((tempInt1 < 1) || (tempInt1 > Define_MaxFKeys))
+        {
+            OwnerSay("CMSG001", [tmp, (string) Define_MaxFKeys]);
+            return;
+        }
+        tempList1 = llParseString2List(tmp,["|"],[]);
+        tempInt2 = llList2Integer(fkeyCounts, tempInt1-1);        // Get the count
+        if (++tempInt2 >= llGetListLength(tempList1))            // Bump counter and wrap it
+        {
+            tempInt2 = 1;
+        }
+        tmp = llStringTrim(llList2String(tempList1,tempInt2),STRING_TRIM);    // Get the command (skip the # of which fkey)
+        fkeyCounts = ReplaceListEntry(fkeyCounts, [ tempInt2 ], tempInt1-1);    // Increment count
+        tempList1 = llParseStringKeepNulls(tmp, [" "],[]);    // Parse command into pieces...
+        Trace("ParseCommand:fkey",tmp);
+        ParseCommand();
+        return;
+    }
 
-	if (cmd == Define_CmdList)
-	{
-		DoList();
-		return;
-	}
+    if (cmd == Define_CmdList)
+    {
+        DoList();
+        return;
+    }
 
-	if (cmd == Define_CmdDebug)
-	{
-		i = llListFindList(["START", "ON", "STOP", "OFF", "PRINT", "PRINTOFF", "SHOW" ], [ llToUpper(tmp) ]);
-		if (i != -1)
-		{
-			j = llList2Integer([ Debug_StartCapture, Debug_StartCapture, Debug_StopCapture, Debug_StopCapture, Debug_PrintOn, Debug_PrintOff, Debug_ShowCaptured ], i);
-			MessageDebug(j);
-		}
-		else
-			OwnerSay("CMSG006", ["DEBUG",tmp]);
-		return;
-	}
-	if (cmd == Define_CmdDefer)
-	{
-		i = llListFindList(["START", "ON", "STOP", "OFF" ], [ llToUpper(tmp) ]);
-		if (i != -1)
-		{
-			j = llList2Integer([ 1, 1, 0, 0 ], i);
-			MessageUISetDeferredDancing(j);
-		}
-		else
-			OwnerSay("CMSG006", ["DEFER",tmp]);
-		return;
-	}
+    if (cmd == Define_CmdDebug)
+    {
+        tempInt1 = llListFindList(["START", "ON", "STOP", "OFF", "PRINT", "PRINTOFF", "SHOW" ], [ llToUpper(tmp) ]);
+        if (CheckNeqMinusOne(tempInt1))
+        {
+            tempInt2 = llList2Integer([ Debug_StartCapture, Debug_StartCapture, Debug_StopCapture, Debug_StopCapture, Debug_PrintOn, Debug_PrintOff, Debug_ShowCaptured ], tempInt1);
+            MessageDebug(tempInt2);
+        }
+        else
+        {
+            OwnerSay("CMSG006", ["DEBUG",tmp]);
+        }
+        return;
+    }
+    if (cmd == Define_CmdDefer)
+    {
+        tempInt1 = llListFindList(["START", "ON", "STOP", "OFF" ], [ llToUpper(tmp) ]);
+        if (CheckNeqMinusOne(tempInt1))
+        {
+            tempInt2 = llList2Integer([ 1, 1, 0, 0 ], tempInt1);
+            MessageUISetDeferredDancing(tempInt2);
+        }
+        else
+        {
+            OwnerSay("CMSG006", ["DEFER",tmp]);
+        }
+        return;
+    }
 
-	if (cmd == Define_CmdGive)
-	{
-		if (INVENTORY_NONE != llGetInventoryType(tmp))
-		{
-			if ((llGetInventoryPermMask(tmp, MASK_OWNER) & (PERM_TRANSFER|PERM_COPY)) == (PERM_TRANSFER|PERM_COPY))
-				MessageSendGroupItem(tmp);
-			else
-				OwnerSay("DCMSG021", [ tmp ] );
-		}
-		else
-			OwnerSay("DCMSG020", [ tmp ] );
-		return;
-	}
+    if (cmd == Define_CmdGive)
+    {
+        if (INVENTORY_NONE != llGetInventoryType(tmp))
+        {
+            if ((llGetInventoryPermMask(tmp, MASK_OWNER) & (PERM_TRANSFER|PERM_COPY)) == (PERM_TRANSFER|PERM_COPY))
+            {
+                MessageSendGroupItem(tmp);
+            }
+            else
+            {
+                OwnerSay("DCMSG021", [ tmp ] );
+            }
+        }
+        else
+        {
+            OwnerSay("DCMSG020", [ tmp ] );
+        }
+        return;
+    }
 
-	if (cmd == Define_CmdReset)
-	{
-		llOwnerSay("Resetting "+ProductName+"...");
-		MessageReset();
-		llResetScript();
-	}
-	
-	if (cmd == Define_CmdRemember)
-	{
-		MessageUIRemember(tmp);
-		return;
-	}
+    if (cmd == Define_CmdReset)
+    {
+        llOwnerSay("Resetting "+ProductBasicName+"...");
+        MessageReset();
+        llResetScript();
+    }
+    
+    if (cmd == Define_CmdRemember)
+    {
+        MessageUIRemember(tmp);
+        return;
+    }
 
-	if (cmd == CmdSetActiveDancers)
-	{
-		i = (integer)tmp;
-		MessageSetActiveDancers(i);
-		return;
-	}
+    if (cmd == CmdSetActiveDancers)
+    {
+        tempInt1 = (integer)tmp;
+        MessageSetActiveDancers(tempInt1);
+        return;
+    }
 
-	if (cmd == CmdSetChannel)
-	{
-		i = (integer)tmp;
-		if (i != 0)
-			MessageSetChatChannel(i);
-		else
-			OwnerSay("CMSG005", [tmp]);
-		return;
-	}
-	if (cmd == Chat_DefaultDuration)
-	{
-		i = (integer)tmp;
-		if ((i > 0) && (i < 300))
-		{
-			MessageDCSetDurationValue(i);
-			MessageListSetDefaultDuration(i);
-			OwnerSay("CMSG011", [i]);
-		}
-		else
-			OwnerSay("CMSG010", [i, 300]);
-		return;
-	}
-	if (cmd == Define_CmdStop)
-	{
-		// Stop from chat means that ALL dancers stop doing anything? Or is it that we just start a wait sequence?
-		// I'm going with starting the next wait sequence - change modes will stop stop stop everyone - generally when
-		// I hit stop - I mean that the current dance should stop - not that everyone should stop dancing and get dropped.
-		// so we will make this a 'start the next wait sequence'. We could change this - but what should it become?
-		MessageGetWait(Define_DANCECONTROLLINKID);
-		return;
-	}
-	if (cmd == Define_CmdHelp)
-	{
-		DoHelp();
-		return;
-	}
-	if (cmd == Define_Help1)
-	{
-		DoHelp1();
-		return;
-	}
-	if (cmd == Define_Help2)
-	{
-		DoHelp2();
-		return;
-	}
-	if (cmd == Define_Help3)
-	{
-		DoHelp3();
-		return;
-	}
+    if (cmd == CmdSetChannel)
+    {
+        tempInt1 = (integer)tmp;
+        if (CheckNeqZero(tempInt1))
+        {
+            MessageSetChatChannel(tempInt1);
+        }
+        else
+        {
+            OwnerSay("CMSG005", [tmp]);
+        }
+        return;
+    }
+    if (cmd == Chat_DefaultDuration)
+    {
+        tempInt1 = (integer)tmp;
+        if ((tempInt1 > 0) & (tempInt1 < 300))
+        {
+            MessageDCSetDurationValue(tempInt1);
+            MessageListSetDefaultDuration(tempInt1);
+            OwnerSay("CMSG011", [tempInt1]);
+        }
+        else
+        {
+            OwnerSay("CMSG010", [tempInt1, 300]);
+        }
+        return;
+    }
+    if (cmd == Define_CmdStop)
+    {
+        // Stop from chat means that ALL dancers stop doing anything? Or is it that we just start a wait sequence?
+        // I'm going with starting the next wait sequence - change modes will stop stop stop everyone - generally when
+        // I hit stop - I mean that the current dance should stop - not that everyone should stop dancing and get dropped.
+        // so we will make this a 'start the next wait sequence'. We could change this - but what should it become?
+        MessageGetWait(Define_DANCECONTROLLINKID);
+        return;
+    }
+    if (cmd == Define_CmdHelp)
+    {
+        DoHelp0();
+        return;
+    }
+    if (cmd == Define_Help1)
+    {
+        DoHelp1();
+        return;
+    }
+    if (cmd == Define_Help2)
+    {
+        DoHelp2();
+        return;
+    }
+    if (cmd == Define_Help3)
+    {
+        DoHelp3();
+        return;
+    }
 
-	// When we haven't figured out a command - it may be that the command is on the menu and the user typed it
-	//  which is the same as plain old selecting it (click) - we don't know for sure - so just call select
-	//  for this item and hope for the best...
-	MessageUISelectString(tmp);
+    // When we haven't figured out a command - it may be that the command is on the menu and the user typed it
+    //  which is the same as plain old selecting it (click) - we don't know for sure - so just call select
+    //  for this item and hope for the best...
+    MessageUISelectString(tmp);
 }
 
 CompletedLoadingAnimations(string errorMsg)
 {
-	// We're all done - one way or another - so tell the user, sent a wait sequence to the dancers and go back to the admin menu... :-)
-	OwnerSay(errorMsg, [animIndex, numAnims, numDancers, llGetTime()-loadAnimsStart]);
-	MessageGetWait(Define_DANCECONTROLLINKID);
-	tmp = "";
-	p = [];
-	dancerLinkids = [];
-	loadingItems = [];
-	numDancers = 0;
-	numAnims = 0;
-	animIndex = 0;
-	loadAnimsStart = 0.0;
-	MessageGoToMenu(Define_ADMINLINKID);
+    // We're all done - one way or another - so tell the user, sent a wait sequence to the dancers and go back to the admin menu... :-)
+    OwnerSay(errorMsg, [animIndex, numAnims, numDancers, llGetTime()-loadAnimsStart]);
+    MessageGetWait(Define_DANCECONTROLLINKID);
+    tmp = "";
+    tempList1 = [];
+    dancerLinkids = [];
+    loadingItems = [];
+    numDancers = 0;
+    numAnims = 0;
+    animIndex = 0;
+    loadAnimsStart = 0.0;
+    MessageGoToMenu(Define_ADMINLINKID);
 }
 
 
@@ -517,75 +549,74 @@ CompletedLoadingAnimations(string errorMsg)
 // We tell the user what is going on - so they aren' surprised by what happens.
 PreloadAllAnimations()
 {
-	integer listLen;
-	integer startFlag = FALSE;
-	string tmp2;
+    integer listLen;
+    integer startFlag = FALSE;
+    string tmp2;
 
-	// Initialization - if we haven't been here before, let's lookup a few things - otherwise
-	//  we assume this is a second pass (or Nth pass) and continue where we left off...
-	if (numAnims == 0)
-	{
-		numDancers = llGetListLength(dancerLinkids);
-		numAnims = llGetInventoryNumber(INVENTORY_ANIMATION);
-		animIndex = 0;
-		loadAnimsStart = llGetTime();
-		
-		// Can't load zero animations - so just return after we tell the user...
-		if (numAnims == 0)
-		{
-			OwnerSay("CMSG013", [ProductName]);
-			return;
-		}
-	}
+    // Initialization - if we haven't been here before, let's lookup a few things - otherwise
+    //  we assume this is a second pass (or Nth pass) and continue where we left off...
+    if (CheckEqZero(numAnims))
+    {
+        numDancers = llGetListLength(dancerLinkids);
+        numAnims = llGetInventoryNumber(INVENTORY_ANIMATION);
+        animIndex = 0;
+        loadAnimsStart = llGetTime();
+        
+        // Can't load zero animations - so just return after we tell the user...
+        if (CheckEqZero(numAnims))
+        {
+            OwnerSay("CMSG013", [ProductBasicName]);
+            return;
+        }
+    }
 
-	// Ok - loop through each of the dancers and send them all a number of animations to independently start on their own
-	loadingItems = [];
-	for (j = 0; (j < numDancers) && (animIndex < numAnims); ++j)
-	{
-		listLen = 0;
-		p = [];
-		if (animIndex < numAnims)
-		{
-			// Loop through the animations for one dancer and load them up...
-			do
-			{
-				tmp = llGetInventoryName(INVENTORY_ANIMATION, animIndex++);
-				p = AppendStringToList(p, tmp);
-				++listLen;
-			} while ((animIndex < numAnims) && (listLen < 20));	// We send 20 animations to each dancer
-			
-			// We've got a lot of animations ready - start them for this dancer
-			startFlag = TRUE;
-			tmp = llDumpList2String(p, "|");
-			MessageStartLoadManyAnims(llList2Integer(dancerLinkids, j), (j == 0), tmp);
-			
-			// Build a pretty lil string for each dancer (below the first 28 dancers) - something like: Dancer #:AAA... to BBB... (26 characters there... I think it'll fit)
-			if (j < (Define_DefaultNumberLines-2))
-			{
-				tmp = llList2String(p, 0);
-				tmp2 = llList2String(p, -1);
-				p = [];
-				if (llStringLength(tmp) > 3)
-					tmp = llGetSubString(tmp,0,2)+"...";
-				if (llStringLength(tmp2) > 3)
-					tmp2 = llGetSubString(tmp2,0,2)+"...";
-				p = ["Dancer ",(j+1),":",tmp," to ",tmp2];
-				tmp = llDumpList2String(p, "");
-				loadingItems = AppendStringToList(loadingItems, tmp);
-			}
-		}
-	}
+    // Ok - loop through each of the dancers and send them all a number of animations to independently start on their own
+    loadingItems = [];
+    for (tempInt2 = 0; (tempInt2 < numDancers) & (animIndex < numAnims); ++tempInt2)
+    {
+        listLen = 0;
+        tempList1 = [];
+        if (animIndex < numAnims)
+        {
+            // Loop through the animations for one dancer and load them up...
+            do
+            {
+                tmp = llGetInventoryName(INVENTORY_ANIMATION, ++animIndex);
+                AppendStringToList(tempList1, tmp);
+                ++listLen;
+            } while ((animIndex < numAnims) & (listLen < 20));    // We send 20 animations to each dancer
+            
+            // We've got a lot of animations ready - start them for this dancer
+            startFlag = TRUE;
+            tmp = llDumpList2String(tempList1, "|");
+            MessageStartLoadManyAnims(llList2Integer(dancerLinkids, tempInt2), (tempInt2 == 0), tmp);
+            
+            // Build a pretty lil string for each dancer (below the first 28 dancers) - something like: Dancer #:AAA... to BBB... (26 characters there... I think it'll fit)
+            if (tempInt2 < (Define_DefaultNumberLines-2))
+            {
+                tmp = llList2String(tempList1, 0);
+                tmp2 = llList2String(tempList1, -1);
+                tempList1 = [];
+                if (llStringLength(tmp) > 3)
+                    tmp = llGetSubString(tmp,0,2)+"...";
+                if (llStringLength(tmp2) > 3)
+                    tmp2 = llGetSubString(tmp2,0,2)+"...";
+                tmp = "Dancer " + (string)(tempInt2+1) + ":" + tmp + " to " + tmp2;
+                AppendStringToList(loadingItems, tmp);
+            }
+        }
+    }
 
-	// If we started any animations at all - now we send a message to refresh the admin menu and start a timer for
-	//  when we will start the next set of animations - then return as we've done as much damage as we can this pass...
-	if (startFlag)
-	{
-		MessageGoToMenu(Define_LOADANIMSMENU);		// Update the menu for the user... :-)
-		llSetTimerEvent(Define_DelayBetweenLoadAllAnims);
-		return;
-	}
+    // If we started any animations at all - now we send a message to refresh the admin menu and start a timer for
+    //  when we will start the next set of animations - then return as we've done as much damage as we can this pass...
+    if (startFlag)
+    {
+        MessageGoToMenu(Define_LOADANIMSMENU);        // Update the menu for the user... :-)
+        llSetTimerEvent(Define_DelayBetweenLoadAllAnims);
+        return;
+    }
 
-	CompletedLoadingAnimations("CMSG014");
+    CompletedLoadingAnimations("CMSG014");
 }
 
 
@@ -595,163 +626,183 @@ PreloadAllAnimations()
 #define LOADING_ANIMS_MENU_NAME "Loading animations..."
 HandleLoadingMenu()
 {
-	integer cmd = llList2Integer(p,0);
-	integer length = llGetListLength(loadingItems);
+    integer cmd = llList2Integer(tempList1,0);
+    integer length = llGetListLength(loadingItems);
 
-	if (MenuLite_GetMenuRange == cmd)
-	{
-		integer linkid = llList2Integer(p,2);
+    if (MenuLite_GetMenuRange == cmd)
+    {
+        integer linkid = llList2Integer(tempList1,2);
 
-		p = [];
-		for (i = 0; i < length; ++i)
-		{
-			tmp = llList2String(loadingItems, i)+"|"+(string)Define_COMMENTBLANKLINKID+"|"+(string)AdminMenuNoOp;
-			p = AppendStringToList(p, tmp);
-		}
-		tmp = " |"+(string)Define_COMMENTBLANKLINKID+"|"+(string)AdminMenuNoOp;
-		p = AppendStringToList(p, tmp);
-		tmp = "Cancel loading animations|"+(string)Define_LOADANIMSMENU+"|"+(string)Menu_CancelLoadingAnimations;
-		p = AppendStringToList(p, tmp);
+        tempList1 = [];
+        for (tempInt1 = 0; tempInt1 < length; ++tempInt1)
+        {
+            tmp = llList2String(loadingItems, tempInt1)+"|"+(string)Define_COMMENTBLANKLINKID+"|"+(string)AdminMenuNoOp;
+            AppendStringToList(tempList1, tmp);
+        }
+        tmp = " |"+(string)Define_COMMENTBLANKLINKID+"|"+(string)AdminMenuNoOp;
+        AppendStringToList(tempList1, tmp);
+        tmp = "Cancel loading animations|"+(string)Define_LOADANIMSMENU+"|"+(string)Menu_CancelLoadingAnimations;
+        AppendStringToList(tempList1, tmp);
 
-		tmp = llDumpList2String(p, "|||");
-		MessageSendMenuRange(linkid, LOADING_ANIMS_MENU_NAME, length+2, 0, Define_FlagRangeConstrainedMenu, Define_LOADANIMSMENU, tmp);
-	}
+        tmp = llDumpList2String(tempList1, "|||");
+        MessageSendMenuRange(linkid, LOADING_ANIMS_MENU_NAME, length+2, 0, Define_FlagRangeConstrainedMenu, Define_LOADANIMSMENU, tmp);
+        tmp = "";
+    }
 
-	if (MenuLite_Select == cmd)
-	{
-		// The menu returned to the user was: (dancer...)|Cancel
-		cmd = llList2Integer(p,1);	// Get the selected item from the list...
-		if (cmd == Menu_CancelLoadingAnimations)
-		{
-			llSetTimerEvent(0.0);		// Stop any update from happening... we cancelled...
-			CompletedLoadingAnimations("CMSG015");
-		}
-	}
-	p = [];
-	tmp = "";
+    if (MenuLite_Select == cmd)
+    {
+        // The menu returned to the user was: (dancer...)|Cancel
+        cmd = llList2Integer(tempList1,1);    // Get the selected item from the list...
+        if (cmd == Menu_CancelLoadingAnimations)
+        {
+            llSetTimerEvent(0.0);        // Stop loading animations... we cancelled...
+            CompletedLoadingAnimations("CMSG015");
+        }
+    }
+    tempList1 = [];
+    tmp = "";
 }
 
 
 
 Initialize()
 {
-	// Handle the reset of the standard chat interface
-	if (listenHandle != 0)
-		llListenRemove(listenHandle);
-	listenChannel = Define_DefaultChannel;
-	ownerKey = llGetOwner();
-	listenHandle = llListen(listenChannel, "", ownerKey, "");
+    // Handle the reset of the standard chat interface
+    if (CheckNeqZero(listenHandle))
+    {
+        llListenRemove(listenHandle);
+    }
+    listenChannel = Define_DefaultChannel;
+    ownerKey = llGetOwner();
+    listenHandle = llListen(listenChannel, "", ownerKey, "");
 
-	// Handle a reset of the emergency chat interface
-	if (emergencyListenHandle != 0)
-		llListenRemove(emergencyListenHandle);
-	emergencyListenHandle = llListen(Define_EmergencyListenNumber, "", ownerKey, "");
+    // Handle a reset of the emergency chat interface
+    if (CheckNeqZero(emergencyListenHandle))
+    {
+        llListenRemove(emergencyListenHandle);
+    }
+    emergencyListenHandle = llListen(Define_EmergencyListenNumber, "", ownerKey, "");
 
-	// Setup for our function keys
-	fkeyCounts = [];
-	for (i = 0; i < Define_MaxFKeys; ++i)
-		fkeyCounts = AppendIntegerToList(fkeyCounts, 0);
+    // Setup for our function keys
+    fkeyCounts = [];
+    for (tempInt1 = 0; tempInt1 < Define_MaxFKeys; ++tempInt1)
+    {
+        AppendIntegerToList(fkeyCounts, 0);
+    }
 }
 
 default
 {
-	state_entry()
-	{
-		Initialize();
-	}
+    state_entry()
+    {
+        Initialize();
+    }
 
-	// Support for listen messages (i.e. chat commands) from the owner only
-	// We receive dancer chat commands from a link message...
-	listen(integer channel, string name, key id, string message)
-	{
-		p = llParseStringKeepNulls(message, [" ","\t"],[]);
+    changed(integer flag)
+    {
+        if (flag & CHANGED_OWNER)
+            llResetScript();
+    }
 
-		// We only do things for the channel we expected to be listening on... other channels
-		//  we filter away... (need to add support here for dancers and their list of channels)
-		if ((-1 != llListFindList([ listenChannel, Define_EmergencyListenNumber ], [ channel ])) && (id == ownerKey))
-			ParseCommand();
-	}	// End of listen
+    // Support for listen messages (i.e. chat commands) from the owner only
+    // We receive dancer chat commands from a link message...
+    listen(integer channel, string name, key id, string message)
+    {
+        tempList1 = llParseStringKeepNulls(message, [" ","\t"],[]);
 
-	link_message(integer sender_num, integer num, string str, key id)
-	{
-		// If the script was reset, then make sure that EVERYTHING has been reset
-		if ((0 == num) && (str == "RESET"))
-		{
-			llResetScript();
-		}
+        // We only do things for the channel we expected to be listening on... other channels
+        //  we filter away...
+        if (((listenChannel == channel) | (Define_EmergencyListenNumber == channel)) &
+            (id == ownerKey))
+        {
+            ParseCommand();
+        }
+    }    // End of listen
 
-		// Handle the chat specific messages...
-		if (num == Define_CHATONLYLINKID)
-		{
-			i = (integer) str;
+    link_message(integer sender_num, integer num, string str, key id)
+    {
+        // If the script was reset, then make sure that EVERYTHING has been reset
+        if (CheckEqZero(num) && (str == "RESET"))
+        {
+            llResetScript();
+        }
 
-			// If the chat channel changed... we need to drop the old one and add the new one...
-			if (Chat_ChangedChannel == i)
-			{
-				if (listenHandle != 0)
-					llListenRemove(listenHandle);
-				listenChannel = (integer)((string)id);
-				listenHandle = llListen(listenChannel, "", ownerKey, "");
-				OwnerSay("CMSG004", [listenChannel]);
-				return;
-			}
+        // Handle the chat specific messages...
+        if (num == Define_CHATONLYLINKID)
+        {
+            tempInt1 = (integer) str;
 
-			// The admin menu does NOT know the chat channel - so it sends us the error code to to be printed...
-			if (Chat_ErrorMessage == i)
-			{
-				OwnerSay((string)id, [listenChannel]);
-				return;
-			}
+            // If the chat channel changed... we need to drop the old one and add the new one...
+            if (Chat_ChangedChannel == tempInt1)
+            {
+                if (CheckNeqZero(listenHandle))
+                {
+                    llListenRemove(listenHandle);
+                }
+                listenChannel = (integer)((string)id);
+                listenHandle = llListen(listenChannel, "", ownerKey, "");
+                OwnerSay("CMSG004", [listenChannel]);
+                return;
+            }
 
-			// Preload all of the animations - loading up each dancer as fast as we can - exciting fast this should be... :-)
-			if (Chat_LoadAllAnimations == i)
-			{
-				// Save the list of dancer link id's - we get all of them loading lots of animations right away...
-				//  and we only let up to 28 dancers appear on the menu... anyone beyond is dropped (i.e. no scrolling)
-				//  then a blank line and a 'cancel' menu item
-				dancerLinkids = llParseString2List((string)id, ["|"], []);
-				if (llGetListLength(dancerLinkids) > 0)
-					PreloadAllAnimations();
-				else
-				{
-					OwnerSay("CMSG012", []);
-					MessageGoToMenu(Define_ADMINLINKID);
-				}
-				return;
-			}
-			
-			// Preload continue - the first dancer script controls us continuing (which indicates we have another cycle to begin...)
-			if (Chat_ContinueLoadAllAnims == i)
-			{
-				llSetTimerEvent(0.0);
-				PreloadAllAnimations();
-				return;
-			}
+            // The admin menu does NOT know the chat channel - so it sends us the error code to to be printed...
+            if (Chat_ErrorMessage == tempInt1)
+            {
+                OwnerSay((string)id, [listenChannel]);
+                return;
+            }
+
+            // Preload all of the animations - loading up each dancer as fast as we can - exciting fast this should be... :-)
+            if (Chat_LoadAllAnimations == tempInt1)
+            {
+                // Save the list of dancer link id's - we get all of them loading lots of animations right away...
+                //  and we only let up to 28 dancers appear on the menu... anyone beyond is dropped (i.e. no scrolling)
+                //  then a blank line and a 'cancel' menu item
+                dancerLinkids = llParseString2List((string)id, ["|"], []);
+                if (llGetListLength(dancerLinkids) > 0)
+                {
+                    PreloadAllAnimations();
+                }
+                else
+                {
+                    OwnerSay("CMSG012", []);
+                    MessageGoToMenu(Define_ADMINLINKID);
+                }
+                return;
+            }
+            
+            // Preload continue - the first dancer script controls us continuing (which indicates we have another cycle to begin...)
+            if (Chat_ContinueLoadAllAnims == tempInt1)
+            {
+                llSetTimerEvent(0.0);
+                PreloadAllAnimations();
+                return;
+            }
 
 
-			// CMD is for the Startup script to be able to startup commands without having to type them all the time...
-			//  this is for my debug interface to do the same thing over and over easily.
-			if (str == "CMD")
-			{
-				p = llParseStringKeepNulls(id, [" ","\t"],[]);
-				ParseCommand();
-			}
-			return;
-		}
+            // CMD is for the Startup script to be able to startup commands without having to type them all the time...
+            //  this is for my debug interface to do the same thing over and over easily.
+            if (str == "CMD")
+            {
+                tempList1 = llParseStringKeepNulls(id, [" ","\t"],[]);
+                ParseCommand();
+            }
+            return;
+        }
 
-		if (Define_LOADANIMSMENU == num)
-		{
-			p = llParseString2List(str, ["|"], []);
-			HandleLoadingMenu();
-			return;
-		}
-	}
+        if (Define_LOADANIMSMENU == num)
+        {
+            tempList1 = llParseString2List(str, ["|"], []);
+            HandleLoadingMenu();
+            return;
+        }
+    }
 
-	// Timer is only for the delay when we are trying to load a LOT of animations on each dancer to 'warm up the HUD'
-	//  We get here if the last dancer does NOT send us a continue message for loading animations...
-	timer()
-	{
-		llSetTimerEvent(0.0);
-		PreloadAllAnimations();
-	}
+    // Timer is only for the delay when we are trying to load a LOT of animations on each dancer to 'warm up the HUD'
+    //  We get here if the last dancer does NOT send us a continue message for loading animations...
+    timer()
+    {
+        llSetTimerEvent(0.0);
+        PreloadAllAnimations();
+    }
 }

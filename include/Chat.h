@@ -1,18 +1,20 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+
 // Interface defintions for the FSChat module - takes in commands from the user (or via linked messages) and does parses/executes them
 
 
 // Define the commands for the chat script
 #define Chat_ChangedChannel 1
 #define Chat_ErrorMessage 2
-	// Handy for getting an error message with the chat channel # added as the last parameter
+    // Handy for getting an error message with the chat channel # added as the last parameter
 #define Chat_LoadAllAnimations 3
-	// Start loading all animations on all dancers concurrently
+    // Start loading all animations on all dancers concurrently
 #define Chat_ContinueLoadAllAnims 4
-	// Message back from the last dancer script that indicates it has successfully loaded all it's dances
+    // Message back from the last dancer script that indicates it has successfully loaded all it's dances
 
 // Define the list menu item selection (cancel) for loading animations
 #define Menu_CancelLoadingAnimations 1
-	// Only really one command on the load animations menu - cancel
+    // Only really one command on the load animations menu - cancel
 
 
 // Command numbers within Chat (never gets outside of FSChat module)
@@ -46,13 +48,13 @@
 
 // Define the globals for the chat user interface
 #define Define_DefaultChannel 98
-	// Default channel that the dance hud listens on for the owner (dancers get a different channel # that is this+something)
+    // Default channel that the dance hud listens on for the owner (dancers get a different channel # that is this+something)
 
 
 // Messages to Chat module
-#define MessageParseChatCmd(command)	llMessageLinked(LINK_THIS, Define_CHATONLYLINKID, (string)"CMD", (key) command)
-#define MessageChangedChatChannel(channel)	llMessageLinked(LINK_THIS, Define_CHATONLYLINKID, (string)Chat_ChangedChannel, (key) ((string)channel))
-#define MessageChatError(errorcode)	llMessageLinked(LINK_THIS, Define_CHATONLYLINKID, (string)Chat_ErrorMessage, (key)errorcode)
-#define MessageChatLoadAllAnims(dancerLinkidsList)	llMessageLinked(LINK_THIS, Define_CHATONLYLINKID, (string)Chat_LoadAllAnimations, (key)llDumpList2String(dancerLinkidsList,"|"))
-#define MessageChatContinueLoadAllAnims()	llMessageLinked(LINK_THIS, Define_CHATONLYLINKID, (string)Chat_ContinueLoadAllAnims, (key)"")
+#define MessageParseChatCmd(command)    llMessageLinked(LINK_THIS, Define_CHATONLYLINKID, (string)"CMD", command)
+#define MessageChangedChatChannel(channel)    llMessageLinked(LINK_THIS, Define_CHATONLYLINKID, (string)Chat_ChangedChannel, (string)channel)
+#define MessageChatError(errorcode)    llMessageLinked(LINK_THIS, Define_CHATONLYLINKID, (string)Chat_ErrorMessage, (key)errorcode)
+#define MessageChatLoadAllAnims(dancerLinkidsList)    llMessageLinked(LINK_THIS, Define_CHATONLYLINKID, (string)Chat_LoadAllAnimations, llDumpList2String(dancerLinkidsList,"|"))
+#define MessageChatContinueLoadAllAnims()    llMessageLinked(LINK_THIS, Define_CHATONLYLINKID, (string)Chat_ContinueLoadAllAnims, "")
 

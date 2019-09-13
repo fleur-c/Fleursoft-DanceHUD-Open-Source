@@ -1,0 +1,10 @@
+// This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
+list e;list A;list v;integer d;key w="00000000-0000-0000-0000-000000000000";integer n;
+C(string c,list p){integer o;list i;integer y;string k;list r=["1","2","3","4","5","6","7","8","9"];integer t;integer b;integer h;string z;key q="";o=llGetListLength(p);i=llParseString2List(c,(list)"|",[]);if (1<llGetListLength(i)){q=llList2Key(i,1);}t=llListFindList(e,(list)llList2String(i,0));if (~t){z=llList2String(A,t);i=llParseStringKeepNulls(z,(list)"&",[]);y=llGetListLength(i);z=llList2String(i,0);for(t=1;t<y;++t){k=llList2String(i,t);h=llStringLength(k);if (0<h){b=llListFindList(r,(list)llGetSubString(k,0,0));if (~b){if (b<o){if (1<h){z=z+(llList2String(p,b)+llGetSubString(k,1,-1));}else{z=z+llList2String(p,b);}}else{z=z+("(missing parameter number "+(string)b+") &"+k);}}else{z=z+("&"+k);}}}if (q==""){llOwnerSay(z);}else{llInstantMessage(q,z);}}else{llOwnerSay("Error - unknown error message code:"+c);}}
+default{
+state_entry(){if (llGetInventoryType("~FSErrors")^7){llOwnerSay("Error message configuration notecard '~FSErrors' is missing - many error messages will not make any sense.");}else{n=1;w=llGetNotecardLine("~FSErrors",d);}}
+changed(integer a){if (a&128)llResetScript();}
+link_message(integer f,integer l,string s,key j){if ((!l)&s=="RESET"){llResetScript();}if (l==12123405){if (n){v=v+(s+"|"+(string)j);}else{C(s,llParseString2List((string)j,(list)"|",[]));}}}
+dataserver(key g,string x){list B;if (g==w){if (x=="\n\n\n"){n=0;if (v!=[]){integer u;string m;for(u=0;u<llGetListLength(v);++u){B=llParseString2List(llList2String(v,u),(list)"|",[]);m=llList2String(B,0);B=llDeleteSubList(B,0,0);C(m,B);}}}else{B=llParseStringKeepNulls(x,(list)" ",[]);if (llGetListLength(B)){e=e+llList2String(B,0);B=llDeleteSubList(B,0,0);A=A+llDumpList2String(B," ");++d;w=llGetNotecardLine("~FSErrors",d);}}}}
+}
+// lsl script: ~FSLanguage  optimized at:Thu Sep  5 19:54:13 2019

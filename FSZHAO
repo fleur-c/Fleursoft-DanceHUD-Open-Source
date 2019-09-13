@@ -1033,6 +1033,9 @@ default {
             lastAnimState = EMPTY;
             checkAndOverride();
         }
+
+        if (_change & CHANGED_OWNER)
+            llResetScript();
     }
 
     collision_start( integer _num ) {

@@ -1,4 +1,5 @@
 #!/usr/bin/perl
+# This work is licensed under a Creative Commons Attribution 3.0 Unported License (http://creativecommons.org/licenses/by/3.0/)
 #
 # Simple script that will generate two output files:
 #   - include/Keywords - this is a  module to include which defines
@@ -29,9 +30,9 @@ print OUT '
 ';
 
 @keynames = ('Integer', 'Float', 'SpecialString', 'String', 'RequiredNumber',
-		'TwoFloats', 'LoopStarts', 'LoopEnds',
-		'LastToken', 'AllowNegativeInt', 'Execute', 'MenuNumber', 'SkipParse');
-		
+        'TwoFloats', 'LoopStarts', 'LoopEnds',
+        'LastToken', 'AllowNegativeInt', 'Execute', 'MenuNumber', 'SkipParse');
+        
 # Same list order - but 0 = no param, 1 = inner param, 2 = outer param
 @paramType = (1, 1, 1, 2, 1, 1, 0, 0, 0, 1, 0, 1);
 
@@ -41,14 +42,14 @@ $outerBits = 0;
 $j = 0;
 foreach $i (@keynames)
 {
-	print OUT "#define key$i $bit\n";
-	$values{$i} = $bit;
-	
-	$innerBits += $bit if ($paramType[$j] eq 1);
-	$outerBits += $bit if ($paramType[$j] eq 2);
-	
-	$bit *= 2;
-	$j++;
+    print OUT "#define key$i $bit\n";
+    $values{$i} = $bit;
+    
+    $innerBits += $bit if ($paramType[$j] eq 1);
+    $outerBits += $bit if ($paramType[$j] eq 2);
+    
+    $bit *= 2;
+    $j++;
 }
 
 $keywords{'Alias'} = 'SpecialString,String';
@@ -59,25 +60,25 @@ $keywords{'End'} = 'LoopEnds';
 $keywords{'IM'} = 'String,Execute';
 $keywords{'Give'} = 'String,Execute';
 $keywords{'Group'} = 'SpecialString,String,LoopStarts';
-$keywords{'Loop'} = 'LoopStarts,Integer';
-$keywords{'Menu'} = 'Integer,String,MenuNumber';
-$keywords{'MenuStyle'} = 'Integer,String,MenuNumber';
-$keywords{'Message'} = 'Integer,String,AllowNegativeInt,Execute';
-$keywords{'Mix'} = 'Integer,LoopStarts';
+$keywords{'Loop'} = 'LoopStarts,Integer,Default(2)';
+$keywords{'Menu'} = 'Integer,String,MenuNumber,Default(menuNumber)';
+$keywords{'MenuStyle'} = 'Integer,String,MenuNumber,Default(menuNumber)';
+$keywords{'Message'} = 'Integer,AllowNegativeInt,RequiredNumber,String,Execute';
+$keywords{'Mix'} = 'Integer,LoopStarts,Default(1)';
 $keywords{'Name'} = 'String';
 $keywords{'NextSequence'} = 'LastToken,String,Execute';
 $keywords{'Owner_say'} = 'String,Execute';
-$keywords{'Random'} = 'Integer,LoopStarts';
+$keywords{'Random'} = 'Integer,LoopStarts,Default(1)';
 $keywords{'Rand'} = 'Float,RequiredNumber,TwoFloats,Execute';
-$keywords{'Region_say'} = 'String,Integer,AllowNegativeInt,Execute';
+$keywords{'Region_say'} = 'Integer,AllowNegativeInt,RequiredNumber,String,Execute';
 $keywords{'Repeat'} = 'LastToken,Execute';
-$keywords{'Say'} = 'Integer,String,AllowNegativeInt,Execute';
+$keywords{'Say'} = 'Integer,AllowNegativeInt,RequiredNumber,String,Execute';
 $keywords{'Setname'} = 'String,Execute';
-$keywords{'Shout'} = 'String,Integer,AllowNegativeInt,Execute';
+$keywords{'Shout'} = 'Integer,AllowNegativeInt,RequiredNumber,String,Execute';
 $keywords{'Stop'} = 'LastToken,Execute';
 $keywords{'Style'} = 'String';
-$keywords{'Whisper'} = 'String,Integer,AllowNegativeInt,Execute';
-$keywords{'ZZZDefer'} = 'String,SkipParse,Execute';	# Used only internal to DanceControl - NOT a user defined keyword
+$keywords{'Whisper'} = 'Integer,AllowNegativeInt,RequiredNumber,String,Execute';
+$keywords{'ZZZDefer'} = 'String,SkipParse,Execute';    # Used only internal to DanceControl - NOT a user defined keyword
 # Keywords of another HUD that provides dance sequence support...
 # These are the keywords we do NOT support at all
 # $keywords{'Go'} =
@@ -98,7 +99,7 @@ $keywords{'ZZZDefer'} = 'String,SkipParse,Execute';	# Used only internal to Danc
 $total = 0;
 foreach $i (sort keys %keywords)
 {
-	$total++;
+    $total++;
 }
 
 print OUT '
@@ -115,18 +116,18 @@ $j=1;
 $count = 1;
 foreach $i (sort keys %keywords)
 {
-	@bits = split(',', $keywords{$i});
-	$key = uc $i;
-	if ($count < $total)
-	{
-		print OUT "\"$key\",     // $j : $keywords{$i}\n";
-	}
-	else
-	{
-		print OUT "\"$key\"     // $j : $keywords{$i}\n";
-	}
-	$j++;
-	$count++;
+    @bits = split(',', $keywords{$i});
+    $key = uc $i;
+    if ($count < $total)
+    {
+        print OUT "\"$key\",     // $j : $keywords{$i}\n";
+    }
+    else
+    {
+        print OUT "\"$key\"     // $j : $keywords{$i}\n";
+    }
+    $j++;
+    $count++;
 }
 
 print OUT '];     // End of list
@@ -143,29 +144,25 @@ list optionsTable = [
 $count = 1;
 foreach $i (sort keys %keywords)
 {
-	@bits = split(',', $keywords{$i});
-	$value = 0;
-	foreach $j (@bits)
-	{
-		if (defined($values{$j}))
-		{
-			$value += $values{$j};
-		}
-		else
-		{
-			die "Failed to lookup value $j for keyword $i\n";
-		}
-	}
-	if ($count < $total)
-	{
-		print OUT "$value,     // $i : $keywords{$i}\n";
-	}
-	else
-	{
-		print OUT "$value     // $i : $keywords{$i}\n";
-	}
-	$bitValue{$i} = $value;
-	$count++;
+    @bits = split(',', $keywords{$i});
+    $value = 0;
+    foreach $j (@bits)
+    {
+        if (defined($values{$j}))
+        {
+            $value += $values{$j};
+        }
+    }
+    if ($count < $total)
+    {
+        print OUT "$value,     // $i : $keywords{$i}\n";
+    }
+    else
+    {
+        print OUT "$value     // $i : $keywords{$i}\n";
+    }
+    $bitValue{$i} = $value;
+    $count++;
 }
 
 print OUT '];     // End of list
@@ -181,34 +178,58 @@ $j = 1;
 $k = 1;
 foreach $i (sort keys %keywords)
 {
-	print OUT "#define keyword$i $j\n";
-	$j++;
-		
-	# Ok - now we have a smaller set of commands that get executed - but we
-	#  need to search for them and NOT just 1-N - so this is a sparce binary
-	#  search - has hole in it... which will work as all of the numbers are
-	#  in sequence - so long as we are careful to make sure to search by
-	#  the appropriate number in the generated 'if' statements - the rest
-	#  will simply fall out and work... hehe - this is all about optimizing
-	#  for execution of ONLY the commands in the sequence that we need to
-	#  use for running a dance sequence.
-	if ($keywords{$i} =~ /Execute/)
-	{
-		$keyidMap{$k} = $j;
-		$k++;
-	}
+    print OUT "#define keyword$i $j\n";
+    $j++;
+        
+    # Ok - now we have a smaller set of commands that get executed - but we
+    #  need to search for them and NOT just 1-N - so this is a sparce binary
+    #  search - has hole in it... which will work as all of the numbers are
+    #  in sequence - so long as we are careful to make sure to search by
+    #  the appropriate number in the generated 'if' statements - the rest
+    #  will simply fall out and work... hehe - this is all about optimizing
+    #  for execution of ONLY the commands in the sequence that we need to
+    #  use for running a dance sequence.
+    if ($keywords{$i} =~ /Execute/)
+    {
+        $keyidMap{$k} = $j;
+        $k++;
+    }
 }
+
+print OUT '
+// List of the default values - there are only a few and these are used in the
+// Read module... but we need a list of them... zero when there is no default value.
+#define defaultValuesList [0';
+foreach $i (sort keys %keywords)
+{
+    print OUT ",";
+        
+    if ($keywords{$i} =~ /Default/)
+    {
+        my $defaultValue = $keywords{$i};
+        $defaultValue =~ s/^.*Default\(//;
+        $defaultValue =~ s/\).*$//;
+        print OUT "$defaultValue";
+    }
+    else
+    {
+        print OUT "0";
+    }
+}
+print OUT ']
+';
+
 close(OUT);
 
 # Now we gather up the keywords that actually execute when we start a dance sequence...
 $j = 1;
 foreach $i (sort keys %keywords)
 {
-	if ($keywords{$i} =~ 'Execute')
-	{
-		$keyMap{$j} = $i;
-		$j++;
-	}
+    if ($keywords{$i} =~ 'Execute')
+    {
+        $keyMap{$j} = $i;
+        $j++;
+    }
 }
 
 
@@ -222,11 +243,11 @@ $level = 0;
 
 sub IndentLevel
 {
-	my($i);
-	for ($i=0; $i < $level; ++$i)
-	{
-		print OUT "    ";
-	}
+    my($i);
+    for ($i=0; $i < $level; ++$i)
+    {
+        print OUT "    ";
+    }
 
 }
 
@@ -236,137 +257,137 @@ $operationType = "Action";
 # Print the appropriate call - either none, one or two parameters based on what the expected tokens provided :-)
 sub printKeywordForSearch
 {
-	my($keyId) = @_;
-	my($b) = $bitValue{$keyMap{$keyId}};
-	
-	IndentLevel();
-	print OUT $operationType . "For$keyMap{$keyId}();	// Search level $level\n";
-	IndentLevel();
-	if ($keyMap{$keyId} eq "Delay")
-	{
-		print OUT "return 1;\n";
-	}
-	else
-	{
-		print OUT "return 0;\n";
-	}	
+    my($keyId) = @_;
+    my($b) = $bitValue{$keyMap{$keyId}};
+    
+    IndentLevel();
+    print OUT $operationType . "For$keyMap{$keyId}();    // Search level $level\n";
+    IndentLevel();
+    if ($keyMap{$keyId} eq "Delay")
+    {
+        print OUT "return 1;\n";
+    }
+    else
+    {
+        print OUT "return 0;\n";
+    }    
 }
 
 sub GenerateSearch
 {
-	my($start,$end) = @_;
-	my($midpoint) = $start + int(($end - $start) / 2);
-	my($powerof2);
-	
-	# Print the header for the module..
-	if ($level == 0)
-	{
-		print OUT '
+    my($start,$end) = @_;
+    my($midpoint) = $start + int(($end - $start) / 2);
+    my($powerof2);
+    
+    # Print the header for the module..
+    if ($level == 0)
+    {
+        print OUT '
 // Binary search for keywords - execute the dance sequence as quickly as we can
-';	
-		print OUT "integer " . $operationType . "Keyword(integer k)
+';    
+        print OUT "integer " . $operationType . "Keyword(integer k)
 {
 ";
-	}
-	
-	$level++;
+    }
+    
+    $level++;
 
-	# Binary search generator
-	#  Three possible conditions:
-	#   1) We are at the same start/end value - so just indent and print the routine
-	#   2) We have two values that are 1 apart - so compare for just the first and print/else print second
-	#   3) We have two values that are farther apart
-	#      3a) Let's normalize the value range to a power of 2 - this will make the binary search a bit more
-	#          efficent (only on the very first call). We will use the power of 2 as the second half
-	#      3b) Generate an IF for the midpoint, then recurse on the first half, else, then second half
-	#      3c) If the range is 3 or less, then bias to a search of first 1, then 2
-	
-	# Case 1 - same value
-	if ($start == $end)
-	{
-		printKeywordForSearch($start);
-	}
-	else
-	{
-		# Case 2 - only two values
-		if ($start+1 == $end)
-		{
-			IndentLevel();
-			print OUT "if (k == keyword" . $keyMap{$start} . ")\n";	
-			IndentLevel();
-			print OUT "{\n";
-			$level++;
-			printKeywordForSearch($start);
-			$level--;
-			IndentLevel();
-			print OUT "}\n";
-			IndentLevel();
-			print OUT "else\n";	
-			IndentLevel();
-			print OUT "{\n";
-			$level++;
-			printKeywordForSearch($end);
-			$level--;
-			IndentLevel();
-			print OUT "}\n";
-		}
-		else
-		{
-	
-			# Case 3 - we have more than 2 values to search for - so make an IF of the midpoint
-			if ($level == 1)
-				{
-				# Calculate the power of 2 that is the value just over the complete range
-				#  then scale back one power of 2
-				#
-				# Now we can generate a nice binary search of the majority of the range and the
-				# remaining part will be just fine... we'll just set the midpoint as the power of 2
-				# and use the same generation code... :-) We'll bias the search so the tail end of
-				# the search is nice and perfectly binary - the first part will have some keywords
-				# that are a little faster - one integer comparison - as we add keywords this will
-				# change which keywords get one less compare - hoping to bias it to [dance] and [delay]...
-				for ($powerof2 = 1; $powerof2 < (($end-$start)+1); $powerof2 *= 2)
-					{
-					;
-					}
-				$powerof2 /= 2;
-				$midpoint = $end - $powerof2;
-				}
-			
-			if (3 == (($end-$start)+1))
-			{
-				$midpoint = $start;
-				IndentLevel();
-				print OUT "if (k == keyword" . $keyMap{$midpoint} . ")\n";
-			}
-			else
-			{
-				IndentLevel();
-				print OUT "if (k <= keyword" . $keyMap{$midpoint} . ")\n";
-			}
-			IndentLevel();
-			print OUT"{\n";
-			GenerateSearch($start, $midpoint);
-			IndentLevel();
-			print OUT"}\n";
-			IndentLevel();
-			print OUT "else\n";
-			IndentLevel();
-			print OUT"{\n";
-			GenerateSearch($midpoint+1, $end);
-			IndentLevel();
-			print OUT"}\n";
-		}
-	}
-	$level--;
-	
-	# Print the trailer for the module..
-	if ($level == 0)
-	{
-		print OUT '}
+    # Binary search generator
+    #  Three possible conditions:
+    #   1) We are at the same start/end value - so just indent and print the routine
+    #   2) We have two values that are 1 apart - so compare for just the first and print/else print second
+    #   3) We have two values that are farther apart
+    #      3a) Let's normalize the value range to a power of 2 - this will make the binary search a bit more
+    #          efficent (only on the very first call). We will use the power of 2 as the second half
+    #      3b) Generate an IF for the midpoint, then recurse on the first half, else, then second half
+    #      3c) If the range is 3 or less, then bias to a search of first 1, then 2
+    
+    # Case 1 - same value
+    if ($start == $end)
+    {
+        printKeywordForSearch($start);
+    }
+    else
+    {
+        # Case 2 - only two values
+        if ($start+1 == $end)
+        {
+            IndentLevel();
+            print OUT "if (k == keyword" . $keyMap{$start} . ")\n";    
+            IndentLevel();
+            print OUT "{\n";
+            $level++;
+            printKeywordForSearch($start);
+            $level--;
+            IndentLevel();
+            print OUT "}\n";
+            IndentLevel();
+            print OUT "else\n";    
+            IndentLevel();
+            print OUT "{\n";
+            $level++;
+            printKeywordForSearch($end);
+            $level--;
+            IndentLevel();
+            print OUT "}\n";
+        }
+        else
+        {
+    
+            # Case 3 - we have more than 2 values to search for - so make an IF of the midpoint
+            if ($level == 1)
+                {
+                # Calculate the power of 2 that is the value just over the complete range
+                #  then scale back one power of 2
+                #
+                # Now we can generate a nice binary search of the majority of the range and the
+                # remaining part will be just fine... we'll just set the midpoint as the power of 2
+                # and use the same generation code... :-) We'll bias the search so the tail end of
+                # the search is nice and perfectly binary - the first part will have some keywords
+                # that are a little faster - one integer comparison - as we add keywords this will
+                # change which keywords get one less compare - hoping to bias it to [dance] and [delay]...
+                for ($powerof2 = 1; $powerof2 < (($end-$start)+1); $powerof2 *= 2)
+                    {
+                    ;
+                    }
+                $powerof2 /= 2;
+                $midpoint = $end - $powerof2;
+                }
+            
+            if (3 == (($end-$start)+1))
+            {
+                $midpoint = $start;
+                IndentLevel();
+                print OUT "if (k == keyword" . $keyMap{$midpoint} . ")\n";
+            }
+            else
+            {
+                IndentLevel();
+                print OUT "if (k <= keyword" . $keyMap{$midpoint} . ")\n";
+            }
+            IndentLevel();
+            print OUT"{\n";
+            GenerateSearch($start, $midpoint);
+            IndentLevel();
+            print OUT"}\n";
+            IndentLevel();
+            print OUT "else\n";
+            IndentLevel();
+            print OUT"{\n";
+            GenerateSearch($midpoint+1, $end);
+            IndentLevel();
+            print OUT"}\n";
+        }
+    }
+    $level--;
+    
+    # Print the trailer for the module..
+    if ($level == 0)
+    {
+        print OUT '}
 ';
-	}
-	
+    }
+    
 }
 
 $j--;
